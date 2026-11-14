@@ -20,6 +20,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # alle Commits und Tags, für die Release-Notes
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -44,9 +46,22 @@ jobs:
         run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} -o app/Releases
         continue-on-error: true   # beim allerersten Release gibt es noch nichts
 
+      - name: Release-Notes aus den Commits seit dem letzten Tag
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $range = if ($prev) { "$prev..$tag" } else { $tag }
+          # Nur die Betreffzeilen, ohne Merge-Commits
+          $lines = git log $range --no-merges --pretty=format:'- %s'
+          $notes = @("## Änderungen") + $lines
+          if ($prev) { $notes += "", "Vollständige Liste: ${{ github.server_url }}/${{ github.repository }}/compare/$prev...$tag" }
+          $notes -join "`n" | Set-Content -Encoding utf8 release-notes.md
+          Get-Content release-notes.md
+
       - name: Bauen und packen
         shell: pwsh
-        run: ./tools/build-release.ps1 -Version ${{ steps.ver.outputs.version }}
+        run: ./tools/build-release.ps1 -Version ${{ steps.ver.outputs.version }} -ReleaseNotes release-notes.md
 
       - name: Release hochladen
         shell: pwsh

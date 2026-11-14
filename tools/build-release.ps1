@@ -3,7 +3,8 @@
 #   powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 1.0.1
 # Voraussetzung: .NET 8 SDK und  dotnet tool install -g vpk --version 1.2.161
 param(
-    [Parameter(Mandatory)] [string] $Version
+    [Parameter(Mandatory)] [string] $Version,
+    [string] $ReleaseNotes   # optional: Markdown-Datei, erscheint im GitHub-Release und in der App
 )
 $ErrorActionPreference = 'Stop'
 $app = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\app'))
@@ -17,9 +18,11 @@ dotnet publish "$app\StreamDeck.App\StreamDeck.App.vbproj" -c Release -r win-x64
     -p:Version=$Version -o $publish
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish fehlgeschlagen" }
 
-vpk pack --packId DIY-StreamDeck --packVersion $Version --packDir $publish `
-    --mainExe StreamDeck.exe --packTitle "DIY Stream Deck" --packAuthors "DIY Stream Deck" `
-    --icon "$app\StreamDeck.App\StreamDeck.ico" --outputDir $releases
+$packArgs = @('pack', '--packId', 'DIY-StreamDeck', '--packVersion', $Version, '--packDir', $publish,
+    '--mainExe', 'StreamDeck.exe', '--packTitle', 'DIY Stream Deck', '--packAuthors', 'DIY Stream Deck',
+    '--icon', "$app\StreamDeck.App\StreamDeck.ico", '--outputDir', $releases)
+if ($ReleaseNotes) { $packArgs += '--releaseNotes', (Resolve-Path $ReleaseNotes).Path }
+vpk @packArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack fehlgeschlagen" }
 
 Write-Host "Fertig: $releases"
