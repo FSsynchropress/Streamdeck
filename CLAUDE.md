@@ -92,16 +92,24 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 ### Aktionstypen
 | Typ | Beschreibung |
 |-----|--------------|
-| `hotkey` | Tastenkombination senden (`SendInput`), z. B. Strg+Shift+M, F13–F24 |
-| `text` | Text einfügen (über Zwischenablage + Strg+V oder Unicode-SendInput) |
-| `media` | Play/Pause, Nächster/Vorheriger Titel, Mute, Lautstärke ± |
-| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt |
+| `hotkey` | Tastenkombination senden (`SendInput`), z. B. Strg+Shift+M, F13–F24; Modifier auch allein und links/rechts (`RCtrl`, `LShift` …) |
+| `text` | Text einfügen (über Zwischenablage + Strg+V oder Unicode-SendInput), optional Enter danach (`enter`) |
+| `media` | Play/Pause, Nächster/Vorheriger Titel, Stopp, Mute, Lautstärke ± |
+| `mic` | Mikrofon systemweit stumm/an/umschalten (`op`), alle Aufnahmegeräte oder eines (`device`) |
+| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt (`restart: true` = von vorn) |
+| `timer` | Countdown (`seconds`), am Ende Hinweis + Ton (`file`, Standard `Sounds\alarm.mp3`); erneuter Druck bricht ab |
 | `launch` | Programm, Datei oder Ordner öffnen, mit Argumenten |
-| `url` | Webseite im Standardbrowser öffnen |
+| `close` | Programm schließen (Fenster wie mit X) oder mit `force` sofort beenden – z. B. als langer Druck |
+| `url` | Webseite im Standardbrowser oder im gewählten Browser (`browser`) öffnen |
+| `http` | HTTP-Anfrage im Hintergrund (`method`, `url`, `body`, `contentType`, `headers`), z. B. n8n-Webhook |
 | `command` | Kommando oder PowerShell-Skript ausführen (versteckt oder sichtbar) |
 | `obs` | OBS-Szene wechseln, Aufnahme/Stream starten/stoppen, Quelle ein-/ausblenden |
 | `page` | Zu einer anderen Seite/Ordner wechseln (mehr als 15 Belegungen) |
-| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten |
+| `profile` | Profil wechseln |
+| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) |
+| `toggle` | Bei jedem Druck die nächste Aktion aus `actions` (Hotkey-Switch, Multi-Action-Switch) |
+
+Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT.log` (14 Tage, Tray-Menü „Protokollordner öffnen“).
 
 ### Seiten & Profile
 - Mehrere **Seiten** pro Profil; eine Taste kann als „Zurück"-Taste dienen

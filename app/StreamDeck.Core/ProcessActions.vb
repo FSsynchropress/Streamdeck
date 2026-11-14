@@ -37,7 +37,59 @@ Public Module ProcessActions
     End Function
 
     Public Function BuildUrl(a As ActionConfig) As ProcessStartInfo
-        Return New ProcessStartInfo(NormalizeUrl(a.Url)) With {.UseShellExecute = True}
+        Dim url = NormalizeUrl(a.Url)
+        If String.IsNullOrWhiteSpace(a.Browser) Then Return New ProcessStartInfo(url) With {.UseShellExecute = True}
+        ' Gewählter Browser: "firefox" -> "firefox.exe" (ShellExecute findet ihn über App Paths), sonst voller Pfad
+        Dim browser = Environment.ExpandEnvironmentVariables(a.Browser.Trim().Trim(""""c))
+        If Not IO.Path.IsPathRooted(browser) AndAlso String.IsNullOrEmpty(IO.Path.GetExtension(browser)) Then browser &= ".exe"
+        Return New ProcessStartInfo(browser, """" & url & """") With {.UseShellExecute = True}
+    End Function
+
+    ''' <summary>"C:\Programme\OBS\obs64.exe" / "obs64.exe" / "obs64" -> "obs64"</summary>
+    Public Function ProcessNameFromPath(path As String) As String
+        If String.IsNullOrWhiteSpace(path) Then Throw New ArgumentException("Kein Programm angegeben.")
+        Dim p = Environment.ExpandEnvironmentVariables(path.Trim().Trim(""""c))
+        Dim name = IO.Path.GetFileName(p)
+        If name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) Then name = name.Substring(0, name.Length - 4)
+        If name.Length = 0 Then Throw New ArgumentException($"'{path}' ist kein Programm.")
+        Return name
+    End Function
+
+    ''' <summary>
+    ''' Schließt alle Prozesse des Programms: höflich über das Hauptfenster (wie Klick auf X) oder
+    ''' mit force sofort (Kill, ungespeicherte Daten gehen verloren). Liefert die Anzahl der Prozesse.
+    ''' </summary>
+    Public Function CloseProcesses(a As ActionConfig, log As Action(Of String)) As Integer
+        Dim name = ProcessNameFromPath(a.Path)
+        Dim force = a.Force.GetValueOrDefault()
+        Dim procs = Process.GetProcessesByName(name)
+        Dim count = 0
+        Try
+            If procs.Length = 0 Then
+                log($"'{name}' läuft nicht.")
+                Return 0
+            End If
+            For Each p In procs
+                Try
+                    If force Then
+                        p.Kill()
+                        count += 1
+                    ElseIf p.CloseMainWindow() Then
+                        count += 1
+                    End If
+                Catch ex As InvalidOperationException
+                    ' inzwischen schon beendet
+                Catch ex As ComponentModel.Win32Exception
+                    log($"'{name}' (PID {p.Id}): {ex.Message} – läuft es als Administrator?")
+                End Try
+            Next
+            If count = 0 AndAlso Not force Then log($"'{name}' hat kein Fenster zum Schließen – 'Erzwingen' verwenden.")
+            Return count
+        Finally
+            For Each p In procs
+                p.Dispose()
+            Next
+        End Try
     End Function
 
     Public Function IsPowerShell(a As ActionConfig) As Boolean
@@ -85,9 +137,10 @@ Public Module ProcessActions
         Return psi
     End Function
 
-    ''' <summary>Registriert launch, url und command beim Runner.</summary>
+    ''' <summary>Registriert launch, close, url und command beim Runner.</summary>
     Public Sub Register(runner As ActionRunner, log As Action(Of String))
         runner.Register(ActionTypes.Launch, DelegateActionHandler.FromSync(Sub(a) StartDetached(BuildLaunch(a))))
+        runner.Register(ActionTypes.Close, DelegateActionHandler.FromSync(Sub(a) CloseProcesses(a, log)))
         runner.Register(ActionTypes.Url, DelegateActionHandler.FromSync(Sub(a) StartDetached(BuildUrl(a))))
         runner.Register(ActionTypes.Command, New DelegateActionHandler(
             Async Function(a, ctx)

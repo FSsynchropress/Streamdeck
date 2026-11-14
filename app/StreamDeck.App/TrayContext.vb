@@ -86,6 +86,7 @@ Public Class TrayContext
     Private ReadOnly _autostartItem As ToolStripMenuItem
     Private ReadOnly _updateItem As ToolStripMenuItem
     Private ReadOnly _logLines As New List(Of String)
+    Private ReadOnly _fileLog As New FileLog(FileLog.DefaultFolder)
     Private _form As MainForm
     Private _lastForeground As String
     Private _exiting As Boolean
@@ -119,6 +120,9 @@ Public Class TrayContext
         Engine = New DeckEngine(config, _runner)
         _obs = New ObsActionHandler(Function() Engine.Config.Obs)
         _runner.Register(ActionTypes.Obs, _obs)
+        HttpActions.Register(_runner)
+        _runner.Register(ActionTypes.Mic, New MicActionHandler(_runner, AddressOf Log))
+        AddHandler _runner.Notify, Sub(t, m) Post(Sub() ShowHint(t, m))
         AddHandler Engine.Log, AddressOf Log
         AddHandler Engine.ConfigChanged, Sub() Post(AddressOf SaveConfig)
 
@@ -134,6 +138,7 @@ Public Class TrayContext
         openItem.Font = New Font(openItem.Font, FontStyle.Bold)
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
+        menu.Items.Add("Protokollordner öffnen", Nothing, Sub() OpenLogFolder())
         menu.Items.Add(New ToolStripSeparator())
 
         ' Updates
@@ -179,6 +184,7 @@ Public Class TrayContext
 
     ''' <summary>Protokolliert eine Meldung (von jedem Thread aus aufrufbar).</summary>
     Public Sub Log(message As String)
+        _fileLog.Write(message)
         Dim line = $"{Date.Now:HH:mm:ss}  {message}"
         Post(Sub()
                  _logLines.Add(line)
@@ -204,6 +210,21 @@ Public Class TrayContext
             Return _configPath
         End Get
     End Property
+
+    ''' <summary>Kurzer Hinweis am Tray-Symbol (bis das On-Screen-Overlay kommt).</summary>
+    Private Sub ShowHint(title As String, message As String)
+        If _exiting OrElse _notify Is Nothing Then Return
+        _notify.ShowBalloonTip(2000, title, If(String.IsNullOrEmpty(message), " ", message), ToolTipIcon.None)
+    End Sub
+
+    Private Sub OpenLogFolder()
+        Try
+            IO.Directory.CreateDirectory(_fileLog.Folder)
+            Process.Start(New ProcessStartInfo(_fileLog.Folder) With {.UseShellExecute = True})?.Dispose()
+        Catch ex As Exception
+            Log($"Protokollordner: {ex.Message}")
+        End Try
+    End Sub
 
     Private Sub SaveConfig()
         Try

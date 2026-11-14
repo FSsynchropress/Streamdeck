@@ -3,10 +3,11 @@
 Public Module Hotkeys
     Private ReadOnly Names As New Dictionary(Of String, UShort)(StringComparer.OrdinalIgnoreCase)
     Private ReadOnly MediaNames As New Dictionary(Of String, UShort)(StringComparer.OrdinalIgnoreCase)
-    Private ReadOnly Modifiers As New HashSet(Of UShort) From {&H10US, &H11US, &H12US, &H5BUS}
+    Private ReadOnly Modifiers As New HashSet(Of UShort) From {
+        &H10US, &H11US, &H12US, &H5BUS, &H5CUS, &HA0US, &HA1US, &HA2US, &HA3US, &HA4US, &HA5US}
     Private ReadOnly ExtendedKeys As New HashSet(Of UShort) From {
         &H21US, &H22US, &H23US, &H24US, &H25US, &H26US, &H27US, &H28US, &H2CUS, &H2DUS, &H2EUS,
-        &H5BUS, &H5CUS, &H5DUS, &H6FUS, &H90US,
+        &H5BUS, &H5CUS, &H5DUS, &H6FUS, &H90US, &HA3US, &HA5US,
         &HADUS, &HAEUS, &HAFUS, &HB0US, &HB1US, &HB2US, &HB3US}
 
     Sub New()
@@ -14,6 +15,15 @@ Public Module Hotkeys
         Add(&H10, "Shift", "Umschalt", "Umsch")
         Add(&H12, "Alt")
         Add(&H5B, "Win", "Windows", "Meta")
+        ' Modifier links/rechts getrennt (auch einzeln sendbar, z. B. "RCtrl")
+        Add(&HA2, "LCtrl", "LStrg")
+        Add(&HA3, "RCtrl", "RStrg")
+        Add(&HA0, "LShift")
+        Add(&HA1, "RShift")
+        Add(&HA4, "LAlt")
+        Add(&HA5, "RAlt")
+        Add(&H5B, "LWin")
+        Add(&H5C, "RWin")
         Add(&HD, "Enter", "Return", "Eingabe")
         Add(&H1B, "Esc", "Escape")
         Add(&H9, "Tab")
