@@ -55,6 +55,7 @@ Public Class ActionRunner
         _handlers(ActionTypes.Multi) = New DelegateActionHandler(AddressOf RunMultiAsync)
         _handlers(ActionTypes.Toggle) = New DelegateActionHandler(AddressOf RunToggleAsync)
         _handlers(ActionTypes.Timer) = New DelegateActionHandler(AddressOf RunTimerAsync)
+        _handlers(ActionTypes.Random) = New DelegateActionHandler(AddressOf RunRandomAsync)
         _handlers(ActionTypes.Wait) = New DelegateActionHandler(
             Function(a, c) Task.Delay(Math.Max(0, Math.Min(MaxWaitMs, If(a.Ms, 0))), c.Cancellation))
     End Sub
@@ -109,10 +110,31 @@ Public Class ActionRunner
         If action.Actions Is Nothing Then Return
         If context.Depth >= MaxNesting Then Throw New InvalidOperationException("zu tief verschachtelte Mehrfach-Aktion")
         Dim inner As New ActionContext With {.KeyIndex = context.KeyIndex, .Cancellation = context.Cancellation, .Depth = context.Depth + 1}
-        For Each a In action.Actions.ToList()
+        Dim list = action.Actions.ToList()
+        If action.Parallel.GetValueOrDefault() Then
+            ' Gleichzeitig: alle starten, auf alle warten (RunAsync wirft nie)
+            Await Task.WhenAll(list.Select(Function(a) Task.Run(Function() RunAsync(a, inner)))).ConfigureAwait(False)
+            Return
+        End If
+        For Each a In list
             context.Cancellation.ThrowIfCancellationRequested()
             Await RunAsync(a, inner).ConfigureAwait(False)
         Next
+    End Function
+
+    ''' <summary>Zufallsaktion: eine Aktion der Liste zufällig ausführen (nie zweimal dieselbe hintereinander, wenn es mehrere gibt).</summary>
+    Private Async Function RunRandomAsync(action As ActionConfig, context As ActionContext) As Task
+        If action.Actions Is Nothing OrElse action.Actions.Count = 0 Then Return
+        If context.Depth >= MaxNesting Then Throw New InvalidOperationException("zu tief verschachtelte Zufallsaktion")
+        Dim list = action.Actions.ToList()
+        Dim key = StateKey(action, context)
+        Dim last As Integer
+        If Not _toggleState.TryGetValue("rnd|" & key, last) Then last = -1
+        Dim index = System.Random.Shared.Next(list.Count)
+        If list.Count > 1 AndAlso index = last Then index = (index + 1 + System.Random.Shared.Next(list.Count - 1)) Mod list.Count
+        _toggleState("rnd|" & key) = index
+        Dim inner As New ActionContext With {.KeyIndex = context.KeyIndex, .Cancellation = context.Cancellation, .Depth = context.Depth + 1}
+        Await RunAsync(list(index), inner).ConfigureAwait(False)
     End Function
 
     ''' <summary>

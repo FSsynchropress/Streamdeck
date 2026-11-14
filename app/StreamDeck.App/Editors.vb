@@ -65,8 +65,9 @@ Public Class ActionEditor
         New Choice(ActionTypes.Obs, "OBS steuern"),
         New Choice(ActionTypes.Page, "Seite wechseln"),
         New Choice(ActionTypes.Profile, "Profil wechseln"),
-        New Choice(ActionTypes.Multi, "Mehrere Aktionen nacheinander"),
+        New Choice(ActionTypes.Multi, "Mehrere Aktionen (nacheinander oder gleichzeitig)"),
         New Choice(ActionTypes.Toggle, "Umschalter (bei jedem Druck die nächste Aktion)"),
+        New Choice(ActionTypes.Random, "Zufällige Aktion aus einer Liste"),
         New Choice(ActionTypes.Wait, "Warten (für Mehrfach-Aktionen)")}
 
     Private Shared ReadOnly MicChoices As Choice() = {
@@ -203,6 +204,7 @@ Public Class ActionEditor
                 If op.EndsWith("Source", StringComparison.Ordinal) AndAlso String.IsNullOrWhiteSpace(a.Source) Then Return "Bitte den Namen der Quelle angeben."
             Case ActionTypes.Page, ActionTypes.Profile : If String.IsNullOrWhiteSpace(a.Target) Then Return "Bitte ein Ziel wählen."
             Case ActionTypes.Multi : If a.Actions Is Nothing OrElse a.Actions.Count = 0 Then Return "Bitte mindestens einen Schritt hinzufügen."
+            Case ActionTypes.Random : If a.Actions Is Nothing OrElse a.Actions.Count < 2 Then Return "Bitte mindestens zwei Aktionen hinzufügen."
             Case ActionTypes.Toggle : If a.Actions Is Nothing OrElse a.Actions.Count < 2 Then Return "Bitte mindestens zwei Aktionen hinzufügen, zwischen denen umgeschaltet wird."
             Case ActionTypes.Close
                 Try
@@ -257,7 +259,10 @@ Public Class ActionEditor
                 If a.Hidden.GetValueOrDefault() Then r.Hidden = True
             Case ActionTypes.Obs : r.Op = a.Op : r.Scene = a.Scene : r.Source = a.Source
             Case ActionTypes.Page, ActionTypes.Profile : r.Target = a.Target
-            Case ActionTypes.Multi : r.Actions = a.Actions
+            Case ActionTypes.Multi
+                r.Actions = a.Actions
+                If a.Parallel.GetValueOrDefault() Then r.Parallel = True
+            Case ActionTypes.Random : r.Actions = a.Actions
             Case ActionTypes.Wait : r.Ms = a.Ms
         End Select
         Return r
@@ -322,7 +327,10 @@ Public Class ActionEditor
                 _working.Scene = TextOf("scene")
                 _working.Source = TextOf("source")
             Case ActionTypes.Page, ActionTypes.Profile : _working.Target = Choice.GetValue(DirectCast(_inputs("target"), ComboBox))
-            Case ActionTypes.Multi : _working.Actions = _steps.ToList()
+            Case ActionTypes.Multi
+                _working.Actions = _steps.ToList()
+                _working.Parallel = DirectCast(_inputs("parallel"), CheckBox).Checked
+            Case ActionTypes.Random : _working.Actions = _steps.ToList()
             Case ActionTypes.Wait : _working.Ms = CInt(DirectCast(_inputs("ms"), NumericUpDown).Value)
         End Select
     End Sub
@@ -517,14 +525,25 @@ Public Class ActionEditor
                 AddHint("Szene/Quelle exakt wie in OBS benennen. Bei Quellen ohne Szene gilt die aktuelle Szene." & vbCrLf &
                         "OBS: Werkzeuge → WebSocket-Servereinstellungen → Server aktivieren; Adresse/Passwort unter Einstellungen.")
             Case ActionTypes.Page
-                Dim items As New List(Of Choice) From {New Choice(ActionTypes.PageBack, "← Zurück (vorige Seite)"), New Choice(ActionTypes.PageFirst, "⌂ Erste Seite")}
+                Dim items As New List(Of Choice) From {
+                    New Choice(ActionTypes.PageBack, "← Zurück (vorige Seite / aus dem Ordner)"), New Choice(ActionTypes.PageFirst, "⌂ Erste Seite"),
+                    New Choice(ActionTypes.TargetNext, "→ Nächste Seite (blättern)"), New Choice(ActionTypes.TargetPrev, "← Vorige Seite (blättern)")}
                 items.AddRange(_pageNames.Select(Function(n) New Choice(n, n)))
                 AddComboRow("target", "Ziel:", items, If(a.Target, ActionTypes.PageBack), editable:=True)
+                AddHint("Seiten und Ordner des Profils. Ein Ordner wird über so eine Taste geöffnet; darin ist die Zurück-Taste fest (Einstellungen)." &
+                        " Blättern läuft ringsum und überspringt Ordner.")
             Case ActionTypes.Profile
-                AddComboRow("target", "Profil:", _profileNames.Select(Function(n) New Choice(n, n)), If(a.Target, _profileNames.FirstOrDefault()), editable:=True)
+                Dim items As New List(Of Choice) From {New Choice(ActionTypes.TargetNext, "→ Nächstes Profil"), New Choice(ActionTypes.TargetPrev, "← Voriges Profil")}
+                items.AddRange(_profileNames.Select(Function(n) New Choice(n, n)))
+                AddComboRow("target", "Profil:", items, If(a.Target, _profileNames.FirstOrDefault()), editable:=True)
                 AddHint("Wechselt das manuell gewählte Profil.")
             Case ActionTypes.Multi
-                BuildStepsEditor("Die Schritte laufen nacheinander (Doppelklick = bearbeiten). Für Pausen den Schritt 'Warten' verwenden.")
+                BuildStepsEditor("Doppelklick = Schritt bearbeiten. Nacheinander: Pausen mit dem Schritt 'Warten'. Gleichzeitig: alle Schritte starten auf einmal.")
+                Dim par As New CheckBox With {.Text = "Alle Schritte gleichzeitig ausführen", .AutoSize = True, .Checked = a.Parallel.GetValueOrDefault()}
+                AddRow("", par)
+                _inputs("parallel") = par
+            Case ActionTypes.Random
+                BuildStepsEditor("Jeder Druck führt zufällig eine der Aktionen aus (nie zweimal dieselbe hintereinander).")
             Case ActionTypes.Toggle
                 BuildStepsEditor("Jeder Tastendruck führt die nächste Aktion aus: 1, 2, 1, 2 … Zwei Tastenkombinationen ergeben einen Hotkey-Switch," &
                                  " zwei 'Mehrere Aktionen' einen Multi-Action-Switch. Mehr als zwei Einträge laufen reihum.")
@@ -895,6 +914,20 @@ Public Class SettingsForm
     Private ReadOnly _obsUrl As New TextBox
     Private ReadOnly _obsPassword As New TextBox With {.UseSystemPasswordChar = True}
     Private ReadOnly _autostart As New CheckBox With {.Text = "Mit Windows starten", .AutoSize = True}
+    Private ReadOnly _overlay As New CheckBox With {.Text = "Einblendung auf dem Bildschirm bei Profil-/Seiten-/Ordnerwechsel und Meldungen", .AutoSize = True}
+    Private ReadOnly _folderBack As New NumericUpDown With {.Minimum = 0, .Maximum = ConfigStore.KeyCount - 1, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+
+    Public ReadOnly Property ShowOverlay As Boolean
+        Get
+            Return _overlay.Checked
+        End Get
+    End Property
+
+    Public ReadOnly Property FolderBackKey As Integer
+        Get
+            Return CInt(_folderBack.Value)
+        End Get
+    End Property
 
     Public ReadOnly Property LongPressMs As Integer
         Get
@@ -933,6 +966,8 @@ Public Class SettingsForm
         _obsUrl.Text = config.Obs?.Url
         _obsPassword.Text = config.Obs?.Password
         _autostart.Checked = autostartOn
+        _overlay.Checked = config.ShowOverlay
+        _folderBack.Value = Math.Max(0, Math.Min(ConfigStore.KeyCount - 1, config.FolderBackKey))
         _obsUrl.Font = Theme.Mono(9.5F)
 
         ' --- Gerät
@@ -952,6 +987,9 @@ Public Class SettingsForm
         Dim longRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         longRow.Controls.Add(_longPress)
         longRow.Controls.Add(New Label With {.Text = "ms – so lange muss eine Taste gehalten werden", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim folderRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        folderRow.Controls.Add(_folderBack)
+        folderRow.Controls.Add(New Label With {.Text = "Taste 0–14 (0 = oben links) – in Ordnern immer 'Zurück'", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
 
         ' --- OBS
         Dim obsHint As New Label With {.Text = "In OBS: Werkzeuge › WebSocket-Servereinstellungen › 'WebSocket-Server aktivieren'. Adresse und Passwort stehen unter 'Verbindungsinformationen anzeigen'. Das Passwort wird unverschlüsselt in config.json gespeichert.",
@@ -960,7 +998,8 @@ Public Class SettingsForm
         Dim body As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(24, 6, 24, 12)}
         Theme.StackTop(body,
                        Section("Gerät"), device,
-                       Section("Allgemein"), _autostart, autostartHint, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Section("Allgemein"), _autostart, autostartHint, _overlay, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 
         Dim folderLink As New LinkLabel With {.Text = "Konfigurationsordner öffnen", .AutoSize = True, .Padding = New Padding(0, 9, 0, 0), .Visible = configPath IsNot Nothing}

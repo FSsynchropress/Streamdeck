@@ -5,6 +5,10 @@ Public Class DeckConfig
     Public Property ActiveProfile As String = "Standard"
     ''' <summary>Ab dieser Haltedauer gilt ein Druck als lang (nur für Tasten mit longPress-Aktion).</summary>
     Public Property LongPressMs As Integer = 500
+    ''' <summary>In Ordnern ist diese Taste (0–14) immer die Zurück-Taste.</summary>
+    Public Property FolderBackKey As Integer = 0
+    ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
+    Public Property ShowOverlay As Boolean = True
     Public Property Obs As New ObsSettings
     Public Property Profiles As New List(Of ProfileConfig)
 
@@ -31,6 +35,11 @@ End Class
 
 Public Class PageConfig
     Public Property Name As String = "Start"
+    ''' <summary>
+    ''' True = Ordner: wird über eine Taste geöffnet (verschachtelbar), hat eine feste Zurück-Taste
+    ''' (DeckConfig.FolderBackKey) und wird beim Vor-/Zurückblättern übersprungen.
+    ''' </summary>
+    Public Property Folder As Boolean?
     ''' <summary>Schlüssel "0".."14" (Taste zeilenweise von oben links).</summary>
     Public Property Keys As New Dictionary(Of String, KeyConfig)
 
@@ -44,6 +53,13 @@ Public Class PageConfig
         Dim id = index.ToString(Globalization.CultureInfo.InvariantCulture)
         If key Is Nothing Then Keys.Remove(id) Else Keys(id) = key
     End Sub
+
+    <JsonIgnore>
+    Public ReadOnly Property IsFolder As Boolean
+        Get
+            Return Folder.GetValueOrDefault()
+        End Get
+    End Property
 End Class
 
 Public Class KeyConfig
@@ -114,6 +130,8 @@ Public Class ActionConfig
     ''' <summary>page: Seitenname, "@back" (vorige Seite) oder "@first" (erste Seite); profile: Profilname</summary>
     Public Property Target As String
     Public Property Actions As List(Of ActionConfig)
+    ''' <summary>multi: True = alle Aktionen gleichzeitig starten statt nacheinander</summary>
+    Public Property Parallel As Boolean?
     ''' <summary>wait: Wartezeit in Millisekunden</summary>
     Public Property Ms As Integer?
 End Class
@@ -139,8 +157,9 @@ Public NotInheritable Class ActionTypes
     Public Const Mic As String = "mic"
     Public Const Timer As String = "timer"
     Public Const Toggle As String = "toggle"
+    Public Const Random As String = "random"
 
-    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Obs, Page, Profile, Multi, Toggle, Wait}
+    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Obs, Page, Profile, Multi, Toggle, Random, Wait}
 
     Public Shared ReadOnly HttpMethods As String() = {"GET", "POST", "PUT", "PATCH", "DELETE"}
     Public Shared ReadOnly MicOps As String() = {"toggle", "mute", "unmute"}
@@ -150,6 +169,19 @@ Public NotInheritable Class ActionTypes
 
     Public Const PageBack As String = "@back"
     Public Const PageFirst As String = "@first"
+    ''' <summary>page/profile: nächste bzw. vorige Seite (Ordner werden übersprungen) oder nächstes/voriges Profil</summary>
+    Public Const TargetNext As String = "@next"
+    Public Const TargetPrev As String = "@prev"
+
+    Private Shared Function DescribeTarget(target As String) As String
+        Select Case If(target, "").ToLowerInvariant()
+            Case PageBack : Return "zurück"
+            Case PageFirst : Return "erste Seite"
+            Case TargetNext : Return "nächste"
+            Case TargetPrev : Return "vorige"
+            Case Else : Return target
+        End Select
+    End Function
 
     ''' <summary>Kurzbeschreibung für Tooltips und Log.</summary>
     Public Shared Function Describe(a As ActionConfig) As String
@@ -176,9 +208,10 @@ Public NotInheritable Class ActionTypes
             Case Toggle : Return $"Umschalten zwischen {If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen"
             Case Command : Return $"{If(String.IsNullOrEmpty(a.Shell), "cmd", a.Shell)}: {Shorten(a.Command)}"
             Case Obs : Return $"OBS {a.Op} {If(a.Scene, "")} {If(a.Source, "")}".TrimEnd()
-            Case Page : Return $"Seite → {a.Target}"
-            Case Profile : Return $"Profil → {a.Target}"
-            Case Multi : Return $"{If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen nacheinander"
+            Case Page : Return $"Seite → {DescribeTarget(a.Target)}"
+            Case Profile : Return $"Profil → {DescribeTarget(a.Target)}"
+            Case Multi : Return $"{If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen {If(a.Parallel.GetValueOrDefault(), "gleichzeitig", "nacheinander")}"
+            Case Random : Return $"Zufällig eine von {If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen"
             Case Wait : Return $"{a.Ms} ms warten"
             Case Else : Return a.ActionType
         End Select

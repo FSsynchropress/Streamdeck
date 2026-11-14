@@ -88,6 +88,9 @@ Public Class TrayContext
     Private ReadOnly _logLines As New List(Of String)
     Private ReadOnly _fileLog As New FileLog(FileLog.DefaultFolder)
     Private _form As MainForm
+    Private _overlay As OverlayForm
+    Private ReadOnly _stateItem As New ToolStripMenuItem("") With {.Enabled = False}
+    Private ReadOnly _profileMenu As New ToolStripMenuItem("Profil wechseln")
     Private _lastForeground As String
     Private _exiting As Boolean
     Private _hintShown As Boolean
@@ -123,6 +126,8 @@ Public Class TrayContext
         HttpActions.Register(_runner)
         _runner.Register(ActionTypes.Mic, New MicActionHandler(_runner, AddressOf Log))
         AddHandler _runner.Notify, Sub(t, m) Post(Sub() ShowHint(t, m))
+        AddHandler Engine.Navigated, Sub(t, s) Post(Sub() OnNavigated(t, s))
+        AddHandler Engine.StateChanged, Sub() Post(AddressOf UpdateTrayText)
         AddHandler Engine.Log, AddressOf Log
         AddHandler Engine.ConfigChanged, Sub() Post(AddressOf SaveConfig)
 
@@ -134,6 +139,9 @@ Public Class TrayContext
 
         ' Tray
         Dim menu As New ContextMenuStrip()
+        menu.Items.Add(_stateItem)
+        menu.Items.Add(_profileMenu)
+        menu.Items.Add(New ToolStripSeparator())
         Dim openItem = menu.Items.Add("Fenster öffnen", Nothing, Sub() ShowMainForm())
         openItem.Font = New Font(openItem.Font, FontStyle.Bold)
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
@@ -148,7 +156,10 @@ Public Class TrayContext
         menu.Items.Add(_updateItem)
         menu.Items.Add(New ToolStripSeparator())
         menu.Items.Add("Beenden", Nothing, Sub() ExitApp())
-        AddHandler menu.Opening, Sub() _autostartItem.Checked = SafeAutostartEnabled()
+        AddHandler menu.Opening, Sub()
+                                     _autostartItem.Checked = SafeAutostartEnabled()
+                                     RefreshTrayMenu()
+                                 End Sub
         AddHandler Updates.UpdateReady, Sub(v) Post(Sub() OnUpdateReady(v))
 
         _notify = New NotifyIcon With {.Icon = IconDisconnected, .Text = "DIY Stream Deck – nicht verbunden", .ContextMenuStrip = menu, .Visible = True}
@@ -164,6 +175,7 @@ Public Class TrayContext
         ' Zweiter Programmstart -> Fenster zeigen
         _waitHandle = ThreadPool.RegisterWaitForSingleObject(showEvent, Sub(s, t) Post(AddressOf ShowMainForm), Nothing, -1, False)
 
+        UpdateTrayText()
         Autostart.RefreshPathIfEnabled()
         Log($"DIY Stream Deck {Updates.CurrentVersion}")
         Log($"Konfiguration: {configPath}")
@@ -211,10 +223,42 @@ Public Class TrayContext
         End Get
     End Property
 
-    ''' <summary>Kurzer Hinweis am Tray-Symbol (bis das On-Screen-Overlay kommt).</summary>
-    Private Sub ShowHint(title As String, message As String)
+    ''' <summary>Kurzer Hinweis: On-Screen-Overlay, oder (wenn ausgeschaltet) Sprechblase am Tray-Symbol.</summary>
+    Private Sub ShowHint(title As String, message As String, Optional glyph As String = Nothing)
         If _exiting OrElse _notify Is Nothing Then Return
-        _notify.ShowBalloonTip(2000, title, If(String.IsNullOrEmpty(message), " ", message), ToolTipIcon.None)
+        If Engine.Config.ShowOverlay Then
+            If _overlay Is Nothing OrElse _overlay.IsDisposed Then _overlay = New OverlayForm()
+            _overlay.ShowMessage(title, message, glyph)
+        Else
+            _notify.ShowBalloonTip(2000, title, If(String.IsNullOrEmpty(message), " ", message), ToolTipIcon.None)
+        End If
+    End Sub
+
+    Private Sub OnNavigated(title As String, subtitle As String)
+        Log($"{title} ({subtitle})")
+        Dim glyph = If(title.StartsWith("Ordner", StringComparison.Ordinal), ChrW(&HE8B7),
+                       If(title.StartsWith("Profil", StringComparison.Ordinal), ChrW(&HE77B), ChrW(&HE7C3)))
+        ShowHint(title, subtitle, glyph)
+    End Sub
+
+    ''' <summary>Tooltip am Tray-Symbol: Verbindung + aktuelles Profil/Seite (max. 127 Zeichen).</summary>
+    Private Sub UpdateTrayText()
+        If _exiting OrElse _notify Is Nothing Then Return
+        Dim port = Connection.PortName
+        Dim text = $"DIY Stream Deck – {If(port IsNot Nothing, $"verbunden ({port})", "nicht verbunden")}{vbLf}{Engine.Summary()}"
+        _notify.Text = If(text.Length > 127, text.Substring(0, 126) & "…", text)
+    End Sub
+
+    ''' <summary>Tray-Menü: Zustand anzeigen und Profil direkt wählen.</summary>
+    Private Sub RefreshTrayMenu()
+        _stateItem.Text = Engine.Summary()
+        _profileMenu.DropDownItems.Clear()
+        For Each p In Engine.Config.Profiles
+            Dim name = p.Name
+            Dim item As New ToolStripMenuItem(name, Nothing, Sub() Engine.SelectProfile(name, notify:=True)) With {
+                .Checked = String.Equals(name, Engine.CurrentProfile.Name, StringComparison.OrdinalIgnoreCase)}
+            _profileMenu.DropDownItems.Add(item)
+        Next
     End Sub
 
     Private Sub OpenLogFolder()
@@ -237,13 +281,8 @@ Public Class TrayContext
     Private Sub OnConnectionChanged()
         If _exiting Then Return
         Dim port = Connection.PortName
-        If port IsNot Nothing Then
-            _notify.Icon = IconConnected
-            _notify.Text = $"DIY Stream Deck – verbunden ({port})"
-        Else
-            _notify.Icon = IconDisconnected
-            _notify.Text = "DIY Stream Deck – nicht verbunden"
-        End If
+        _notify.Icon = If(port IsNot Nothing, IconConnected, IconDisconnected)
+        UpdateTrayText()
         RaiseEvent ConnectionChanged()
     End Sub
 
@@ -257,9 +296,7 @@ Public Class TrayContext
         _lastForeground = name
         ' Im eigenen Fenster nicht umschalten, sonst springt das Profil beim Bearbeiten weg.
         If String.Equals(name, Process.GetCurrentProcess().ProcessName, StringComparison.OrdinalIgnoreCase) Then Return
-        If Engine.ApplyForegroundProcess(name) Then
-            Log($"Profil '{Engine.CurrentProfile.Name}'{If(Engine.IsAutoProfile, $" (automatisch für {name})", "")}")
-        End If
+        Engine.ApplyForegroundProcess(name)   ' meldet einen Wechsel über Navigated (Protokoll + Overlay)
     End Sub
 
     Private Shared Function SafeAutostartEnabled() As Boolean
@@ -280,9 +317,12 @@ Public Class TrayContext
     End Sub
 
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
-    Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean)
+    Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
+                             folderBackKey As Integer, showOverlay As Boolean)
         Engine.UpdateConfig(Sub(c)
                                 c.LongPressMs = longPressMs
+                                c.ShowOverlay = showOverlay
+                                ConfigEdit.SetFolderBackKey(c, folderBackKey)
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}
                             End Sub)
         _obs.Reset()
@@ -361,6 +401,7 @@ Public Class TrayContext
         Engine.Dispose()
         _sound.Dispose()
         _obs.Dispose()
+        _overlay?.Dispose()
     End Sub
 
     Protected Overrides Sub Dispose(disposing As Boolean)

@@ -25,6 +25,11 @@ Public Class DeckEngine
     ''' <summary>Konfiguration wurde geändert und sollte gespeichert werden.</summary>
     Public Event ConfigChanged()
     Public Event Log(message As String)
+    ''' <summary>
+    ''' Profil/Seite/Ordner wurde am Gerät oder automatisch gewechselt (für das On-Screen-Overlay).
+    ''' Nicht bei Klicks in der Oberfläche.
+    ''' </summary>
+    Public Event Navigated(title As String, subtitle As String)
 
     ''' <param name="clock">Millisekunden-Uhr (für Tests); Standard Environment.TickCount64.</param>
     ''' <param name="tickIntervalMs">Prüfintervall für langen Druck; 0 = kein Timer (Tests rufen Tick selbst).</param>
@@ -36,10 +41,11 @@ Public Class DeckEngine
 
         AddHandler _state.Changed, Sub() RaiseEvent StateChanged()
         AddHandler runner.Log, Sub(m) RaiseEvent Log(m)
-        runner.Register(ActionTypes.Page, DelegateActionHandler.FromSync(Sub(a) GoToPage(a.Target)))
+        runner.Register(ActionTypes.Page, DelegateActionHandler.FromSync(Sub(a) GoToPage(a.Target, notify:=True)))
         runner.Register(ActionTypes.Profile, DelegateActionHandler.FromSync(
             Sub(a)
-                If Not SelectProfile(a.Target) Then RaiseEvent Log($"Profil '{a.Target}' gibt es nicht.")
+                Dim relative = a.Target IsNot Nothing AndAlso a.Target.StartsWith("@", StringComparison.Ordinal)
+                If Not SelectProfile(a.Target, notify:=True) AndAlso Not relative Then RaiseEvent Log($"Profil '{a.Target}' gibt es nicht.")
             End Sub))
 
         If tickIntervalMs > 0 Then _timer = New Threading.Timer(Sub(s) Tick(), Nothing, tickIntervalMs, tickIntervalMs)
@@ -149,25 +155,71 @@ Public Class DeckEngine
 
     ' ------------------------------------------------------------------ Bedienung
 
-    Public Function GoToPage(target As String) As Boolean
-        SyncLock _sync
-            Return _state.GoToPage(target)
-        End SyncLock
-    End Function
-
-    ''' <summary>Profil manuell wählen; wird als aktives Profil gespeichert.</summary>
-    Public Function SelectProfile(name As String) As Boolean
+    ''' <param name="notify">True = Navigated auslösen (Wechsel am Gerät).</param>
+    Public Function GoToPage(target As String, Optional notify As Boolean = False) As Boolean
         Dim ok As Boolean
+        Dim title As String = Nothing, subtitle As String = Nothing
         SyncLock _sync
-            ok = _state.SelectProfile(name)
+            ok = _state.GoToPage(target)
+            If ok Then DescribePage(title, subtitle)
         End SyncLock
-        If ok Then RaiseEvent ConfigChanged()
+        If ok AndAlso notify Then RaiseEvent Navigated(title, subtitle)
         Return ok
     End Function
 
-    Public Function ApplyForegroundProcess(processName As String) As Boolean
+    ''' <summary>Profil manuell wählen ("@next"/"@prev" = reihum); wird als aktives Profil gespeichert.</summary>
+    Public Function SelectProfile(name As String, Optional notify As Boolean = False) As Boolean
+        Dim ok As Boolean
+        Dim before As ProfileConfig
+        Dim title As String = Nothing, subtitle As String = Nothing
         SyncLock _sync
-            Return _state.ApplyForegroundProcess(processName)
+            before = _state.CurrentProfile
+            ok = _state.SelectProfile(name)
+            If ok Then DescribeProfile(title, subtitle)
+        End SyncLock
+        If ok Then RaiseEvent ConfigChanged()
+        If ok AndAlso notify AndAlso before IsNot _state.CurrentProfile Then RaiseEvent Navigated(title, subtitle)
+        Return ok
+    End Function
+
+    ''' <summary>Smart Profiles: Profil nach Vordergrundprogramm wählen. Ein Wechsel wird gemeldet (Navigated).</summary>
+    Public Function ApplyForegroundProcess(processName As String) As Boolean
+        Dim ok As Boolean
+        Dim title As String = Nothing, subtitle As String = Nothing
+        SyncLock _sync
+            ok = _state.ApplyForegroundProcess(processName)
+            If ok Then
+                DescribeProfile(title, subtitle)
+                If _state.IsAutoProfile Then subtitle = $"automatisch für {processName}"
+            End If
+        End SyncLock
+        If ok Then RaiseEvent Navigated(title, subtitle)
+        Return ok
+    End Function
+
+    Private Sub DescribeProfile(ByRef title As String, ByRef subtitle As String)
+        title = $"Profil: {_state.CurrentProfile.Name}"
+        subtitle = $"Seite {_state.CurrentPage.Name}"
+    End Sub
+
+    Private Sub DescribePage(ByRef title As String, ByRef subtitle As String)
+        Dim page = _state.CurrentPage
+        Dim profile = _state.CurrentProfile
+        If page.IsFolder Then
+            title = $"Ordner: {page.Name}"
+            subtitle = $"Profil {profile.Name} · Zurück auf Taste {_state.Config.FolderBackKey}"
+        Else
+            Dim pages = profile.Pages.Where(Function(p) Not p.IsFolder).ToList()
+            title = $"Seite: {page.Name}"
+            subtitle = $"Profil {profile.Name} · {pages.IndexOf(page) + 1}/{pages.Count}"
+        End If
+    End Sub
+
+    ''' <summary>Kurzer Zustandstext, z. B. "Profil Standard · Seite Start" (für Tray-Tooltip und Menü).</summary>
+    Public Function Summary() As String
+        SyncLock _sync
+            Dim page = _state.CurrentPage
+            Return $"Profil {_state.CurrentProfile.Name}{If(_state.IsAutoProfile, " (auto)", "")} · {If(page.IsFolder, "Ordner", "Seite")} {page.Name}"
         End SyncLock
     End Function
 

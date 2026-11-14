@@ -363,7 +363,8 @@ Public Class MainForm
         For Each pg In profile.Pages
             Dim name = pg.Name
             Dim used = Enumerable.Range(0, ConfigStore.KeyCount).Count(Function(i) pg.GetKey(i) IsNot Nothing)
-            Dim item As New NavItem(name) With {.Selected = name = page.Name, .Badge = $"{used}/{ConfigStore.KeyCount}"}
+            Dim item As New NavItem(If(pg.IsFolder, "▸ " & name, name)) With {.Selected = name = page.Name, .Badge = $"{used}/{ConfigStore.KeyCount}",
+                                                                           .Subtitle = If(pg.IsFolder, "Ordner", Nothing)}
             AddHandler item.Click, Sub() _engine.GoToPage(name)
             AddHandler item.DoubleClick, Sub() RenamePage(name)
             AddHandler item.MouseUp, Sub(s, e)
@@ -373,7 +374,7 @@ Public Class MainForm
         Next
         ReplaceItems(_pageList, pageItems)
 
-        _crumb.Text = $"Profil {profile.Name}  /  Seite"
+        _crumb.Text = $"Profil {profile.Name}  /  {If(page.IsFolder, "Ordner", "Seite")}"
         _pageTitle.Text = page.Name
 
         SyncInspector(profile, page)
@@ -429,6 +430,11 @@ Public Class MainForm
 
     ''' <summary>Wählt eine Taste für den Inspektor; fragt bei ungespeicherten Änderungen nach.</summary>
     Private Sub SelectKey(index As Integer)
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, index) Then
+            MessageBox.Show(Me, $"In Ordnern ist Taste {index} fest die Zurück-Taste. Welche Taste das ist, lässt sich in den Einstellungen ändern.",
+                            "Ordner", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Return
+        End If
         Dim here = _inspector.ProfileName = _engine.CurrentProfile.Name AndAlso _inspector.PageName = _engine.CurrentPage.Name
         If here AndAlso index = _inspector.KeyIndex Then Return
         If _inspector.IsDirty Then
@@ -472,6 +478,8 @@ Public Class MainForm
 
     Private Sub SwapKeys(fromIndex As Integer, toIndex As Integer)
         If fromIndex = toIndex Then Return
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, fromIndex) OrElse
+           ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, toIndex) Then Return
         Dim p = _engine.CurrentProfile.Name
         Dim pg = _engine.CurrentPage.Name
         _engine.UpdateConfig(Sub(c)
@@ -566,6 +574,7 @@ Public Class MainForm
     Private Sub ShowPageMenu(anchor As Control)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Neue Seite …", Nothing, Sub() NewPage())
+        m.Items.Add("Neuer Ordner …", Nothing, Sub() NewPage(asFolder:=True))
         m.Items.Add("Seite umbenennen …", Nothing, Sub() RenamePage(_engine.CurrentPage.Name))
         m.Items.Add("Seite löschen", Nothing, Sub() DeletePage(_engine.CurrentPage.Name)).Enabled = _engine.CurrentProfile.Pages.Count > 1
         m.Items.Add(New ToolStripSeparator())
@@ -578,14 +587,53 @@ Public Class MainForm
     Private Sub ShowPageItemMenu(name As String, anchor As Control, location As Point)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Umbenennen …", Nothing, Sub() RenamePage(name))
+        Dim pg = _engine.CurrentProfile.FindPage(name)
+        Dim isFolder = pg IsNot Nothing AndAlso pg.IsFolder
+        Dim folderItem = m.Items.Add(If(isFolder, "In normale Seite umwandeln", "In Ordner umwandeln"), Nothing, Sub() SetFolder(name, Not isFolder))
+        folderItem.Enabled = pg IsNot Nothing AndAlso pg IsNot _engine.CurrentProfile.Pages(0)
         m.Items.Add("Löschen", Nothing, Sub() DeletePage(name)).Enabled = _engine.CurrentProfile.Pages.Count > 1
         AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
         m.Show(anchor, location)
     End Sub
 
-    Private Sub NewPage()
+    ''' <summary>Ordner: per Taste öffnen (Aktion 'Seite wechseln'), feste Zurück-Taste, beim Blättern übersprungen.</summary>
+    Private Sub SetFolder(name As String, folder As Boolean)
+        Dim profileName = _engine.CurrentProfile.Name
+        Dim lost = False
+        _engine.UpdateConfig(Sub(c) lost = Not ConfigEdit.SetFolder(c, c.FindProfile(profileName), name, folder))
+        If lost AndAlso folder Then
+            MessageBox.Show(Me, $"Auf Taste {_engine.Config.FolderBackKey} lag eine Belegung, und es war keine Taste mehr frei – sie wurde durch 'Zurück' ersetzt.",
+                            "Ordner", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End If
+    End Sub
+
+    Private Sub NewPage(Optional asFolder As Boolean = False)
         Dim profileName = _engine.CurrentProfile.Name
         Dim names = _engine.CurrentProfile.Pages.Select(Function(p) p.Name).ToList()
+        If asFolder Then
+            Dim folderName = AskName("Name des neuen Ordners:", "Neuer Ordner", ConfigEdit.UniqueName(names, "Ordner"), names)
+            If folderName Is Nothing Then Return
+            Dim fromPage = _engine.CurrentPage.Name
+            Dim placed = -1
+            _engine.UpdateConfig(Sub(c)
+                                     Dim p = c.FindProfile(profileName)
+                                     ConfigEdit.AddPage(p, folderName)
+                                     ConfigEdit.SetFolder(c, p, folderName, True)
+                                     ' Taste zum Öffnen auf die erste freie Taste der aktuellen Seite legen (verschachtelbar)
+                                     Dim here = p.FindPage(fromPage)
+                                     placed = Enumerable.Range(0, ConfigStore.KeyCount).Where(
+                                         Function(i) here.GetKey(i) Is Nothing AndAlso Not ConfigStore.IsFixedBackKey(c, here, i)).DefaultIfEmpty(-1).First()
+                                     If placed >= 0 Then here.SetKey(placed, New KeyConfig With {
+                                         .Label = folderName, .Press = New ActionConfig With {.ActionType = ActionTypes.Page, .Target = folderName}})
+                                 End Sub, profileName, fromPage)
+            If placed >= 0 Then
+                SelectKey(placed)
+            Else
+                MessageBox.Show(Me, $"Ordner '{folderName}' angelegt. Auf dieser Seite ist keine Taste frei – zum Öffnen einer Taste die Aktion 'Seite wechseln' mit Ziel '{folderName}' geben.",
+                                "Neuer Ordner", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            End If
+            Return
+        End If
         Dim name = AskName("Name der neuen Seite:", "Neue Seite", ConfigEdit.UniqueName(names, "Seite"), names)
         If name Is Nothing Then Return
         _engine.UpdateConfig(Sub(c)
@@ -661,7 +709,7 @@ Public Class MainForm
         End Try
         Using dlg As New SettingsForm(_engine.Config, autostartOn, _tray.Connection.PortName, _tray.ConfigPath)
             If dlg.ShowDialog(Me) = DialogResult.OK Then
-                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled)
+                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay)
             End If
         End Using
     End Sub

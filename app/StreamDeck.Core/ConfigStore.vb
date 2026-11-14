@@ -50,6 +50,7 @@ Public Module ConfigStore
         If cfg.Profiles.Count = 0 Then cfg.Profiles.Add(New ProfileConfig With {.Name = "Standard"})
         If cfg.Obs Is Nothing Then cfg.Obs = New ObsSettings
         If cfg.LongPressMs < 100 OrElse cfg.LongPressMs > 10000 Then cfg.LongPressMs = 500
+        If cfg.FolderBackKey < 0 OrElse cfg.FolderBackKey >= KeyCount Then cfg.FolderBackKey = 0
 
         For Each p In cfg.Profiles
             If String.IsNullOrWhiteSpace(p.Name) Then p.Name = "Profil"
@@ -65,11 +66,28 @@ Public Module ConfigStore
                     Dim n As Integer
                     If pg.Keys(id) Is Nothing OrElse Not Integer.TryParse(id, n) OrElse n < 0 OrElse n >= KeyCount Then pg.Keys.Remove(id)
                 Next
+                If Not pg.IsFolder Then pg.Folder = Nothing
+            Next
+            ' Die Startseite kann kein Ordner sein (sonst gäbe es kein "Zurück").
+            p.Pages(0).Folder = Nothing
+            ' Ordner haben immer die feste Zurück-Taste.
+            For Each pg In p.Pages.Where(Function(x) x.IsFolder)
+                pg.SetKey(cfg.FolderBackKey, FolderBackKeyConfig())
             Next
         Next
 
         If cfg.FindProfile(cfg.ActiveProfile) Is Nothing Then cfg.ActiveProfile = cfg.Profiles(0).Name
     End Sub
+
+    ''' <summary>Die feste Zurück-Taste in Ordnern.</summary>
+    Public Function FolderBackKeyConfig() As KeyConfig
+        Return New KeyConfig With {.Label = "Zurück", .Press = New ActionConfig With {.ActionType = ActionTypes.Page, .Target = ActionTypes.PageBack}}
+    End Function
+
+    ''' <summary>Ist das die feste Zurück-Taste eines Ordners (nicht bearbeitbar)?</summary>
+    Public Function IsFixedBackKey(cfg As DeckConfig, page As PageConfig, index As Integer) As Boolean
+        Return page IsNot Nothing AndAlso page.IsFolder AndAlso index = cfg.FolderBackKey
+    End Function
 
     ''' <summary>Lädt die Datei. Fehlt sie, wird die Standardkonfiguration angelegt und gespeichert.</summary>
     Public Function Load(path As String) As DeckConfig
