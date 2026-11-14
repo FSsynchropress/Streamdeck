@@ -559,6 +559,40 @@ Public Class MainForm
         Loop
     End Function
 
+    ''' <summary>Ein Profil als Datei speichern, um es auf einem anderen Rechner zu importieren.</summary>
+    Private Sub ExportProfile(name As String)
+        Dim p = _engine.Config.FindProfile(name)
+        If p Is Nothing Then Return
+        Using d As New SaveFileDialog With {.Filter = "Stream-Deck-Profil (*.sdprofile.json)|*.sdprofile.json|JSON (*.json)|*.json", .FileName = $"{name}.sdprofile.json"}
+            If d.ShowDialog(Me) <> DialogResult.OK Then Return
+            Try
+                IO.File.WriteAllText(d.FileName, ConfigEdit.ExportProfile(p), New Text.UTF8Encoding(False))
+                _tray.Log($"Profil '{name}' exportiert: {d.FileName}")
+            Catch ex As Exception
+                MessageBox.Show(Me, ex.Message, "Profil exportieren", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            End Try
+        End Using
+    End Sub
+
+    Private Sub ImportProfile()
+        Using d As New OpenFileDialog With {.Filter = "Stream-Deck-Profil (*.sdprofile.json;*.json)|*.sdprofile.json;*.json|Alle Dateien|*.*"}
+            If d.ShowDialog(Me) <> DialogResult.OK Then Return
+            Dim json As String
+            Try
+                json = IO.File.ReadAllText(d.FileName)
+                ConfigEdit.ImportProfile(ConfigStore.CloneConfig(_engine.Config), json)   ' Probelauf: Fehler vor dem Übernehmen melden
+            Catch ex As Exception
+                MessageBox.Show(Me, $"Die Datei ist kein gültiges Profil:{vbCrLf}{ex.Message}", "Profil importieren", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Return
+            End Try
+            Dim imported As String = Nothing
+            _engine.UpdateConfig(Sub(c) imported = ConfigEdit.ImportProfile(c, json).Name)
+            _tray.Log($"Profil '{imported}' importiert")
+            MessageBox.Show(Me, $"Profil '{imported}' wurde hinzugefügt. Pfade zu Programmen, Sounds und Symbolen müssen auf diesem Rechner ggf. angepasst werden.",
+                            "Profil importieren", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        End Using
+    End Sub
+
     Private Sub ShowProfileMenu(name As String, anchor As Control, location As Point)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Umbenennen …", Nothing, Sub() RenameProfile(name))
@@ -570,6 +604,9 @@ Public Class MainForm
         Next
         If running.DropDownItems.Count = 0 Then running.DropDownItems.Add("(keine Programme mit Fenster gefunden)").Enabled = False
         m.Items.Add(running)
+        m.Items.Add(New ToolStripSeparator())
+        m.Items.Add("Profil exportieren (für anderen Rechner) …", Nothing, Sub() ExportProfile(name))
+        m.Items.Add("Profil importieren …", Nothing, Sub() ImportProfile())
         m.Items.Add(New ToolStripSeparator())
         m.Items.Add("Löschen", Nothing, Sub() DeleteProfile(name)).Enabled = _engine.Config.Profiles.Count > 1
         AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
@@ -763,7 +800,7 @@ Public Class MainForm
         End Try
         Using dlg As New SettingsForm(_engine.Config, autostartOn, _tray.Connection.PortName, _tray.ConfigPath)
             If dlg.ShowDialog(Me) = DialogResult.OK Then
-                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.DoublePressMs)
+                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.DoublePressMs, dlg.RunAsAdmin)
             End If
         End Using
     End Sub

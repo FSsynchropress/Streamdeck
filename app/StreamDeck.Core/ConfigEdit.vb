@@ -106,6 +106,36 @@ Public Module ConfigEdit
         Next
     End Sub
 
+    ''' <summary>Hülle für eine Profil-Datei (*.sdprofile.json), damit sie sich von einer ganzen Konfiguration unterscheiden lässt.</summary>
+    Public Class ProfileFile
+        Public Property StreamDeckProfile As Integer = 1
+        Public Property Profile As ProfileConfig
+    End Class
+
+    ''' <summary>Ein Profil als JSON zum Weitergeben an einen anderen Rechner.</summary>
+    Public Function ExportProfile(profile As ProfileConfig) As String
+        Return Text.Json.JsonSerializer.Serialize(New ProfileFile With {.Profile = profile}, ConfigStore.JsonOptions)
+    End Function
+
+    ''' <summary>
+    ''' Profil aus JSON übernehmen (Profil-Datei oder nacktes Profil). Gibt es den Namen schon, wird er
+    ''' eindeutig gemacht ("Name 2"). Liefert das hinzugefügte Profil. Wirft JsonException/FormatException.
+    ''' </summary>
+    Public Function ImportProfile(cfg As DeckConfig, json As String) As ProfileConfig
+        Dim file = Text.Json.JsonSerializer.Deserialize(Of ProfileFile)(json, ConfigStore.JsonOptions)
+        Dim p = file?.Profile
+        If p Is Nothing Then
+            p = Text.Json.JsonSerializer.Deserialize(Of ProfileConfig)(json, ConfigStore.JsonOptions)
+            If p Is Nothing OrElse p.Pages Is Nothing OrElse p.Pages.Count = 0 Then Throw New FormatException("Die Datei enthält kein Profil.")
+        End If
+        Dim baseName = If(String.IsNullOrWhiteSpace(p.Name), "Profil", p.Name.Trim())
+        Dim existing = cfg.Profiles.Select(Function(x) x.Name).ToList()
+        p.Name = If(existing.Contains(baseName, StringComparer.OrdinalIgnoreCase), UniqueName(existing, baseName), baseName)
+        cfg.Profiles.Add(p)
+        ConfigStore.Normalize(cfg)
+        Return p
+    End Function
+
     Private Function IsBackKey(k As KeyConfig) As Boolean
         Return k IsNot Nothing AndAlso k.Press IsNot Nothing AndAlso IsType(k.Press, ActionTypes.Page) AndAlso String.Equals(k.Press.Target, ActionTypes.PageBack, StringComparison.OrdinalIgnoreCase) AndAlso k.LongPress Is Nothing
     End Function

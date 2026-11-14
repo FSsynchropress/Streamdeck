@@ -11,6 +11,8 @@ Public Class DeckConfig
     Public Property FolderBackKey As Integer = 0
     ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
     Public Property ShowOverlay As Boolean = True
+    ''' <summary>App mit Administratorrechten starten (nötig für Hotkeys in Programmen, die als Administrator laufen).</summary>
+    Public Property RunAsAdmin As Boolean
     Public Property Obs As New ObsSettings
     Public Property Profiles As New List(Of ProfileConfig)
 
@@ -144,6 +146,15 @@ Public Class ActionConfig
     Public Property Parallel As Boolean?
     ''' <summary>wait: Wartezeit in Millisekunden</summary>
     Public Property Ms As Integer?
+    ''' <summary>window: Zielmonitor (1 = erster Monitor laut Windows-Reihenfolge)</summary>
+    Public Property Monitor As Integer?
+    ''' <summary>window (op "move"): Position und Größe in Prozent des Monitor-Arbeitsbereichs</summary>
+    Public Property X As Integer?
+    Public Property Y As Integer?
+    Public Property Width As Integer?
+    Public Property Height As Integer?
+    ''' <summary>plugin: Name des Plugins (DLL-Plugin oder Skript im Plugin-Ordner)</summary>
+    Public Property Plugin As String
 End Class
 
 Public NotInheritable Class ActionTypes
@@ -168,8 +179,13 @@ Public NotInheritable Class ActionTypes
     Public Const Timer As String = "timer"
     Public Const Toggle As String = "toggle"
     Public Const Random As String = "random"
+    Public Const Window As String = "window"
+    Public Const Plugin As String = "plugin"
 
-    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Obs, Page, Profile, Multi, Toggle, Random, Wait}
+    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Window, Obs, Page, Profile, Multi, Toggle, Random, Plugin, Wait}
+
+    ''' <summary>window: Monitor wechseln, maximieren, minimieren, wiederherstellen, Position/Größe in Prozent</summary>
+    Public Shared ReadOnly WindowOps As String() = {"monitor", "nextMonitor", "maximize", "minimize", "restore", "move"}
 
     Public Shared ReadOnly HttpMethods As String() = {"GET", "POST", "PUT", "PATCH", "DELETE"}
     Public Shared ReadOnly MicOps As String() = {"toggle", "mute", "unmute"}
@@ -222,6 +238,18 @@ Public NotInheritable Class ActionTypes
             Case Profile : Return $"Profil → {DescribeTarget(a.Target)}"
             Case Multi : Return $"{If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen {If(a.Parallel.GetValueOrDefault(), "gleichzeitig", "nacheinander")}"
             Case Random : Return $"Zufällig eine von {If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen"
+            Case Window
+                Dim target = If(String.IsNullOrWhiteSpace(a.Path), "aktives Fenster", a.Path)
+                Select Case If(a.Op, "").ToLowerInvariant()
+                    Case "monitor" : Return $"{target} → Monitor {a.Monitor.GetValueOrDefault(1)}"
+                    Case "nextmonitor" : Return $"{target} → nächster Monitor"
+                    Case "maximize" : Return $"{target} maximieren"
+                    Case "minimize" : Return $"{target} minimieren"
+                    Case "restore" : Return $"{target} wiederherstellen"
+                    Case "move" : Return $"{target} → {a.X}/{a.Y} % · {a.Width}×{a.Height} %"
+                    Case Else : Return $"Fenster {a.Op}"
+                End Select
+            Case Plugin : Return $"Plugin {a.Plugin} {a.Args}".TrimEnd()
             Case Wait : Return $"{a.Ms} ms warten"
             Case Else : Return a.ActionType
         End Select
