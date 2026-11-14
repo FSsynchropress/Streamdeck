@@ -236,7 +236,7 @@ Public Class MainForm
             body = "**Was ist passiert?**" & vbLf & vbLf & vbLf &
                    "**Was hätte passieren sollen?**" & vbLf & vbLf & vbLf &
                    "**Schritte zum Nachstellen**" & vbLf & "1. " & vbLf & vbLf &
-                   "**Protokoll** (Tray-Menü „Protokollordner öffnen“, relevante Zeilen einfügen)" & vbLf & vbLf & vbLf &
+                   "**Protokoll** (Tray-Menü 'Protokollordner öffnen', relevante Zeilen einfügen)" & vbLf & vbLf & vbLf &
                    "---" & vbLf & $"App-Version: {version}" & vbLf & $"Windows: {Environment.OSVersion.VersionString}"
         Else
             title = "[Idee] "
