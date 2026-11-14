@@ -68,21 +68,46 @@ Public Class NoiseGate
     End Sub
 End Class
 
-Public NotInheritable Class SoftClip
-    Private Const Knee As Single = 0.8F
+''' <summary>
+''' Limiter: Würde eine Spitze die Obergrenze überschreiten, wird die Lautstärke sofort so weit gesenkt,
+''' dass sie genau passt, und danach langsam wieder angehoben. Anders als ein Clipper verbiegt er die
+''' Wellenform nicht und klingt deshalb nicht verzerrt.
+''' </summary>
+Public Class Limiter
+    Private ReadOnly _channels As Integer
+    Private ReadOnly _ceiling As Single
+    Private ReadOnly _release As Single
+    Private _gain As Single = 1.0F
 
-    Private Sub New()
+    ''' <param name="ceilingDb">Obergrenze in dBFS (Standard -1 dB).</param>
+    Public Sub New(sampleRate As Integer, channels As Integer, Optional ceilingDb As Double = -1, Optional releaseMs As Double = 250)
+        _channels = Math.Max(1, channels)
+        _ceiling = CSng(NoiseGate.DbToLinear(ceilingDb))
+        _release = CSng(1 - Math.Exp(-1 / Math.Max(1, releaseMs * sampleRate / 1000)))
     End Sub
 
-    ''' <summary>Begrenzt weich auf ±1, damit Verstärkung und Mischen nicht hart übersteuern.</summary>
-    Public Shared Sub Process(buffer As Single(), offset As Integer, count As Integer)
-        For i = offset To offset + count - 1
-            Dim x = buffer(i)
-            Dim a = Math.Abs(x)
-            If a > Knee Then
-                Dim y = Knee + (1 - Knee) * CSng(Math.Tanh((a - Knee) / (1 - Knee)))
-                buffer(i) = If(x < 0, -y, y)
-            End If
-        Next
+    ''' <summary>Aktuelle Absenkung 0…1 (1 = keine).</summary>
+    Public ReadOnly Property Gain As Single
+        Get
+            Return _gain
+        End Get
+    End Property
+
+    Public Sub Process(buffer As Single(), offset As Integer, count As Integer)
+        Dim i = offset
+        Dim last = offset + count - _channels
+        While i <= last
+            Dim peak = 0.0F
+            For c = 0 To _channels - 1
+                Dim v = Math.Abs(buffer(i + c))
+                If v > peak Then peak = v
+            Next
+            _gain += (1.0F - _gain) * _release                      ' langsam zurück auf 1
+            If peak * _gain > _ceiling Then _gain = _ceiling / peak  ' sofort absenken
+            For c = 0 To _channels - 1
+                buffer(i + c) *= _gain
+            Next
+            i += _channels
+        End While
     End Sub
 End Class

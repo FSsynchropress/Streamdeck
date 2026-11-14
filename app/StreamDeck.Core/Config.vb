@@ -45,6 +45,10 @@ Public Class VoiceMixSettings
     Public Property NoiseGate As Boolean = True
     ''' <summary>Schwelle der Rauschsperre in dBFS (-80 … -10); leiser gilt als Rauschen.</summary>
     Public Property NoiseGateDb As Integer = -45
+    ''' <summary>Lautstärke der Sounds im Mix in %, 0–100 (zusätzlich zur Lautstärke der Taste; Reserve gegen Übersteuern).</summary>
+    Public Property SoundVolume As Integer = 70
+    ''' <summary>Mikrofon im Kommunikationsmodus aufnehmen (Windows-Sprachaufbereitung). Aus, wenn es zu laut/pumpend klingt.</summary>
+    Public Property Communications As Boolean = True
 
     Public Const MaxMicVolume As Integer = 400
 End Class

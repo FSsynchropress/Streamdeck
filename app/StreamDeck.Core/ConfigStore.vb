@@ -52,6 +52,7 @@ Public Module ConfigStore
         If cfg.VoiceMix Is Nothing Then cfg.VoiceMix = New VoiceMixSettings
         cfg.VoiceMix.MicVolume = Math.Max(0, Math.Min(VoiceMixSettings.MaxMicVolume, cfg.VoiceMix.MicVolume))
         cfg.VoiceMix.NoiseGateDb = Math.Max(-80, Math.Min(-10, cfg.VoiceMix.NoiseGateDb))
+        cfg.VoiceMix.SoundVolume = Math.Max(0, Math.Min(100, cfg.VoiceMix.SoundVolume))
         If cfg.LongPressMs < 100 OrElse cfg.LongPressMs > 10000 Then cfg.LongPressMs = 500
         If cfg.DoublePressMs < 150 OrElse cfg.DoublePressMs > 1000 Then cfg.DoublePressMs = 300
         If cfg.FolderBackKey < 0 OrElse cfg.FolderBackKey >= KeyCount Then cfg.FolderBackKey = 0
