@@ -83,11 +83,16 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 - Aktionen werden asynchron ausgeführt, damit ein langsamer Befehl keine anderen Tasten blockiert
 
 ### Oberfläche
-- Raster 3×5 wie das echte Gerät, jede Taste mit Label und optionalem Icon
-- Klick auf eine Taste öffnet den Editor: Label, Icon, Aktion für kurzen Druck, optional Aktion für langen Druck
+- Raster 3×5 wie das echte Gerät, jede Taste mit Label, Beschreibung (`description`) und optionalem Icon
+- Klick auf eine Taste öffnet den Inspektor: Reiter Kurz / Lang / Doppelt / Loslassen (`press`, `longPress`, `doublePress`, `release`), „Wiederholen beim Halten“ (`repeat`), Testen-Knopf
+  - Kurz löst sofort aus; ist Lang belegt, erst beim Loslassen; ist Doppelt belegt, nach dem Zeitfenster `doublePressMs`
+  - Loslassen läuft zusätzlich bei jedem Loslassen und beim Verbindungsabbruch (Push-to-Talk)
+  - Wiederholen nur ohne Lang/Doppelt
+- Aktionsleiste: Aktionstyp per Drag-and-drop auf eine Taste ziehen
+- „Taste lernen“: nächster Druck am Gerät wählt die Taste in der Oberfläche aus (ohne Aktion)
 - Tastendruck am Gerät wird im Raster live hervorgehoben
 - Import/Export der Konfiguration
-- Aus den Labels/Icons eine druckbare Vorlage für die Keycap-Einleger erzeugen (16 × 16 mm pro Taste) – optional, später
+- „Druckvorlage“: Keycap-Einleger 16 × 16 mm pro Taste, je Seite ein Raster, drucken oder als PNG (300 dpi) speichern
 
 ### Aktionstypen
 | Typ | Beschreibung |

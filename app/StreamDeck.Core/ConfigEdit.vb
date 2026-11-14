@@ -10,6 +10,12 @@ Public Module ConfigEdit
         For Each a In Flatten(key.LongPress)
             Yield a
         Next
+        For Each a In Flatten(key.DoublePress)
+            Yield a
+        Next
+        For Each a In Flatten(key.Release)
+            Yield a
+        Next
     End Function
 
     Public Iterator Function Flatten(action As ActionConfig, Optional depth As Integer = 0) As IEnumerable(Of ActionConfig)

@@ -318,9 +318,10 @@ Public Class TrayContext
 
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
     Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
-                             folderBackKey As Integer, showOverlay As Boolean)
+                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer)
         Engine.UpdateConfig(Sub(c)
                                 c.LongPressMs = longPressMs
+                                c.DoublePressMs = doublePressMs
                                 c.ShowOverlay = showOverlay
                                 ConfigEdit.SetFolderBackKey(c, folderBackKey)
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}

@@ -13,6 +13,8 @@ Public Class DeckEngine
     Private ReadOnly _state As DeckState
     Private ReadOnly _tracker As KeyPressTracker
     Private ReadOnly _held As New Dictionary(Of Integer, KeyConfig)
+    ''' <summary>Belegung je Taste, solange Taste gehalten oder der Tracker noch entscheidet (Doppeldruck).</summary>
+    Private ReadOnly _bound As New Dictionary(Of Integer, KeyConfig)
     Private ReadOnly _clock As Func(Of Long)
     Private _timer As Threading.Timer
 
@@ -37,7 +39,12 @@ Public Class DeckEngine
         _clock = If(clock, Function() Environment.TickCount64)
         Me.Runner = runner
         _state = New DeckState(config)
-        _tracker = New KeyPressTracker(AddressOf HasLongAction) With {.LongPressMs = _state.Config.LongPressMs}
+        _tracker = New KeyPressTracker(Function(k)
+                                           Dim key As KeyConfig = Nothing
+                                           _bound.TryGetValue(k, key)
+                                           Return KeyCaps.For(key)
+                                       End Function)
+        ApplyTimings()
 
         AddHandler _state.Changed, Sub() RaiseEvent StateChanged()
         AddHandler runner.Log, Sub(m) RaiseEvent Log(m)
@@ -95,61 +102,104 @@ Public Class DeckEngine
         AddHandler connection.Log, Sub(m) RaiseEvent Log(m)
     End Sub
 
-    Private Function HasLongAction(keyIndex As Integer) As Boolean
-        Dim k As KeyConfig = Nothing
-        Return _held.TryGetValue(keyIndex, k) AndAlso k IsNot Nothing AndAlso k.LongPress IsNot Nothing AndAlso Not String.IsNullOrEmpty(k.LongPress.ActionType)
+    ''' <summary>
+    ''' "Taste lernen": Solange aktiv, löst ein Druck am Gerät keine Aktion aus, sondern meldet nur KeyLearned
+    ''' (die Oberfläche markiert dann diese Taste).
+    ''' </summary>
+    Public Property LearnMode As Boolean
+    Public Event KeyLearned(keyIndex As Integer)
+
+    Private Shared Function ActionFor(key As KeyConfig, kind As PressKind) As ActionConfig
+        If key Is Nothing Then Return Nothing
+        Select Case kind
+            Case PressKind.ShortPress, PressKind.Repeat : Return key.Press
+            Case PressKind.LongPress : Return key.LongPress
+            Case PressKind.DoublePress : Return key.DoublePress
+            Case PressKind.Release : Return key.Release
+            Case Else : Return Nothing
+        End Select
     End Function
 
+    Private Sub ApplyTimings()
+        _tracker.LongPressMs = _state.Config.LongPressMs
+        _tracker.DoublePressMs = _state.Config.DoublePressMs
+    End Sub
+
+    Private Sub FireAll(keyIndex As Integer, actions As List(Of ActionConfig))
+        For Each a In actions
+            If a IsNot Nothing Then Runner.Fire(a, keyIndex)
+        Next
+    End Sub
+
     Public Sub OnKeyDown(keyIndex As Integer)
-        Dim toFire As ActionConfig = Nothing
+        If LearnMode Then
+            RaiseEvent KeyLearned(keyIndex)
+            Return
+        End If
+        Dim toFire As New List(Of ActionConfig)
         SyncLock _sync
             If _held.ContainsKey(keyIndex) Then Return   ' doppeltes D ignorieren
-            Dim key = _state.GetKey(keyIndex)            ' Belegung beim Drücken merken (Seite kann wechseln)
+            ' Belegung beim ersten Drücken merken (Seite kann wechseln); beim zweiten Druck eines
+            ' Doppeldrucks gilt weiter die gemerkte Belegung.
+            Dim key As KeyConfig = Nothing
+            If Not (_tracker.IsPending(keyIndex) AndAlso _bound.TryGetValue(keyIndex, key)) Then key = _state.GetKey(keyIndex)
+            _bound(keyIndex) = key
             _held(keyIndex) = key
-            If _tracker.OnDown(keyIndex, _clock()) = PressKind.ShortPress Then toFire = key?.Press
+            For Each kind In _tracker.OnDown(keyIndex, _clock())
+                toFire.Add(ActionFor(key, kind))
+            Next
         End SyncLock
         RaiseEvent KeyStateChanged(keyIndex, True)
-        If toFire IsNot Nothing Then Runner.Fire(toFire, keyIndex)
+        FireAll(keyIndex, toFire)
     End Sub
 
     Public Sub OnKeyUp(keyIndex As Integer)
-        Dim toFire As ActionConfig = Nothing
+        Dim toFire As New List(Of ActionConfig)
         SyncLock _sync
             Dim key As KeyConfig = Nothing
             If Not _held.TryGetValue(keyIndex, key) Then Return
             _held.Remove(keyIndex)
-            Dim kind = _tracker.OnUp(keyIndex, _clock())
-            If key IsNot Nothing AndAlso kind.HasValue Then toFire = If(kind.Value = PressKind.LongPress, key.LongPress, key.Press)
+            For Each kind In _tracker.OnUp(keyIndex, _clock())
+                toFire.Add(ActionFor(key, kind))
+            Next
+            If Not _tracker.IsPending(keyIndex) Then _bound.Remove(keyIndex)
         End SyncLock
         RaiseEvent KeyStateChanged(keyIndex, False)
-        If toFire IsNot Nothing Then Runner.Fire(toFire, keyIndex)
+        FireAll(keyIndex, toFire)
     End Sub
 
-    ''' <summary>Löst fällige lange Tastendrücke aus. Läuft per Timer, Tests rufen es direkt auf.</summary>
+    ''' <summary>Löst fällige Ereignisse aus (lang, kurz nach Doppeldruck-Fenster, Wiederholung). Läuft per Timer, Tests rufen es direkt auf.</summary>
     Public Sub Tick()
         Dim due As New List(Of (Integer, ActionConfig))
         SyncLock _sync
             If _tracker.PendingCount = 0 Then Return
-            For Each k In _tracker.Tick(_clock())
+            For Each d In _tracker.Tick(_clock())
                 Dim key As KeyConfig = Nothing
-                If _held.TryGetValue(k, key) AndAlso key?.LongPress IsNot Nothing Then due.Add((k, key.LongPress))
+                _bound.TryGetValue(d.Key, key)
+                due.Add((d.Key, ActionFor(key, d.Kind)))
+                If Not _tracker.IsPending(d.Key) AndAlso Not _held.ContainsKey(d.Key) Then _bound.Remove(d.Key)
             Next
         End SyncLock
         For Each d In due
-            Runner.Fire(d.Item2, d.Item1)
+            If d.Item2 IsNot Nothing Then Runner.Fire(d.Item2, d.Item1)
         Next
     End Sub
 
-    ''' <summary>Verbindung weg: alle gehaltenen Tasten gelten als losgelassen (ohne Aktion).</summary>
+    ''' <summary>
+    ''' Verbindung weg: alle gehaltenen Tasten gelten als losgelassen. Nur die Aktionen beim Loslassen
+    ''' laufen (damit z. B. Push-to-Talk das Mikrofon wieder stumm schaltet), sonst nichts.
+    ''' </summary>
     Public Sub ReleaseAll()
-        Dim released As List(Of Integer)
+        Dim released As List(Of KeyValuePair(Of Integer, KeyConfig))
         SyncLock _sync
-            released = _held.Keys.ToList()
+            released = _held.ToList()
             _held.Clear()
+            _bound.Clear()
             _tracker.Reset()
         End SyncLock
-        For Each k In released
-            RaiseEvent KeyStateChanged(k, False)
+        For Each kv In released
+            RaiseEvent KeyStateChanged(kv.Key, False)
+            If kv.Value?.Release IsNot Nothing Then Runner.Fire(kv.Value.Release, kv.Key)
         Next
     End Sub
 
@@ -232,7 +282,7 @@ Public Class DeckEngine
             Dim copy = ConfigStore.CloneConfig(_state.Config)
             mutate(copy)
             _state.ReplaceConfig(copy, showProfile, showPage)
-            _tracker.LongPressMs = _state.Config.LongPressMs
+            ApplyTimings()
         End SyncLock
         RaiseEvent ConfigChanged()
     End Sub
@@ -241,7 +291,7 @@ Public Class DeckEngine
     Public Sub ReplaceConfig(config As DeckConfig)
         SyncLock _sync
             _state.ReplaceConfig(config)
-            _tracker.LongPressMs = _state.Config.LongPressMs
+            ApplyTimings()
         End SyncLock
         RaiseEvent ConfigChanged()
     End Sub

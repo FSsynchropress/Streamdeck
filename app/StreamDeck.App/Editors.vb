@@ -917,6 +917,14 @@ Public Class SettingsForm
     Private ReadOnly _overlay As New CheckBox With {.Text = "Einblendung auf dem Bildschirm bei Profil-/Seiten-/Ordnerwechsel und Meldungen", .AutoSize = True}
     Private ReadOnly _folderBack As New NumericUpDown With {.Minimum = 0, .Maximum = ConfigStore.KeyCount - 1, .Width = 70, .TextAlign = HorizontalAlignment.Right}
 
+    Private ReadOnly _doublePress As New NumericUpDown With {.Minimum = 150, .Maximum = 1000, .Increment = 25, .Width = 90, .TextAlign = HorizontalAlignment.Right}
+
+    Public ReadOnly Property DoublePressMs As Integer
+        Get
+            Return CInt(_doublePress.Value)
+        End Get
+    End Property
+
     Public ReadOnly Property ShowOverlay As Boolean
         Get
             Return _overlay.Checked
@@ -967,6 +975,7 @@ Public Class SettingsForm
         _obsPassword.Text = config.Obs?.Password
         _autostart.Checked = autostartOn
         _overlay.Checked = config.ShowOverlay
+        _doublePress.Value = Math.Max(_doublePress.Minimum, Math.Min(_doublePress.Maximum, config.DoublePressMs))
         _folderBack.Value = Math.Max(0, Math.Min(ConfigStore.KeyCount - 1, config.FolderBackKey))
         _obsUrl.Font = Theme.Mono(9.5F)
 
@@ -987,6 +996,9 @@ Public Class SettingsForm
         Dim longRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         longRow.Controls.Add(_longPress)
         longRow.Controls.Add(New Label With {.Text = "ms – so lange muss eine Taste gehalten werden", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim doubleRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        doubleRow.Controls.Add(_doublePress)
+        doubleRow.Controls.Add(New Label With {.Text = "ms – so schnell muss der zweite Druck folgen", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
         Dim folderRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         folderRow.Controls.Add(_folderBack)
         folderRow.Controls.Add(New Label With {.Text = "Taste 0–14 (0 = oben links) – in Ordnern immer 'Zurück'", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
@@ -999,6 +1011,7 @@ Public Class SettingsForm
         Theme.StackTop(body,
                        Section("Gerät"), device,
                        Section("Allgemein"), _autostart, autostartHint, _overlay, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Theme.FieldLabel("Doppeldruck innerhalb"), doubleRow,
                        Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 

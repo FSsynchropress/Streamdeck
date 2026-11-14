@@ -5,6 +5,8 @@ Public Class DeckConfig
     Public Property ActiveProfile As String = "Standard"
     ''' <summary>Ab dieser Haltedauer gilt ein Druck als lang (nur für Tasten mit longPress-Aktion).</summary>
     Public Property LongPressMs As Integer = 500
+    ''' <summary>Zeitfenster für den zweiten Druck eines Doppeldrucks (nur für Tasten mit doublePress-Aktion).</summary>
+    Public Property DoublePressMs As Integer = 300
     ''' <summary>In Ordnern ist diese Taste (0–14) immer die Zurück-Taste.</summary>
     Public Property FolderBackKey As Integer = 0
     ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
@@ -66,8 +68,16 @@ Public Class KeyConfig
     Public Property Label As String
     ''' <summary>Pfad zu einer Bilddatei (PNG, JPG, ICO …).</summary>
     Public Property Icon As String
+    ''' <summary>Freitext-Beschreibung (nur für Oberfläche und Druckvorlage).</summary>
+    Public Property Description As String
     Public Property Press As ActionConfig
     Public Property LongPress As ActionConfig
+    ''' <summary>Aktion bei zweimal schnell hintereinander drücken.</summary>
+    Public Property DoublePress As ActionConfig
+    ''' <summary>Aktion beim Loslassen (z. B. Push-to-Talk: Druck = Mikro an, Loslassen = Mikro aus).</summary>
+    Public Property Release As ActionConfig
+    ''' <summary>Kurzen Druck wiederholen, solange die Taste gehalten wird (z. B. Lautstärke). Nur ohne lang/doppelt.</summary>
+    Public Property Repeat As Boolean?
 End Class
 
 ''' <summary>

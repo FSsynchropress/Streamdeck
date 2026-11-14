@@ -53,23 +53,32 @@ End Class
 
 Public Class KeyPressTrackerTests
     Private Shared Function Tracker(ParamArray keysWithLong As Integer()) As KeyPressTracker
-        Return New KeyPressTracker(Function(k) keysWithLong.Contains(k)) With {.LongPressMs = 500}
+        Return New KeyPressTracker(Function(k) New KeyCaps With {.HasLong = keysWithLong.Contains(k)}) With {.LongPressMs = 500}
+    End Function
+
+    Private Shared Function Caps(Optional hasLong As Boolean = False, Optional hasDouble As Boolean = False, Optional repeat As Boolean = False) As KeyPressTracker
+        Return New KeyPressTracker(Function(k) New KeyCaps With {.HasLong = hasLong, .HasDouble = hasDouble, .Repeat = repeat}) With {
+            .LongPressMs = 500, .DoublePressMs = 300, .RepeatDelayMs = 400, .RepeatIntervalMs = 100}
+    End Function
+
+    Private Shared Function Kinds(ticks As List(Of (Key As Integer, Kind As PressKind))) As PressKind()
+        Return ticks.Select(Function(t) t.Kind).ToArray()
     End Function
 
     <Fact>
     Public Sub KeyWithoutLongActionFiresImmediatelyOnDown()
         Dim t = Tracker()
-        Assert.Equal(PressKind.ShortPress, t.OnDown(2, 1000))
-        Assert.Null(t.OnUp(2, 1050))
+        AssertSeq({PressKind.ShortPress}, t.OnDown(2, 1000))
+        AssertSeq({PressKind.Release}, t.OnUp(2, 1050))
         Assert.Empty(t.Tick(5000))
     End Sub
 
     <Fact>
     Public Sub KeyWithLongActionShortWhenReleasedEarly()
         Dim t = Tracker(2)
-        Assert.Null(t.OnDown(2, 1000))
+        Assert.Empty(t.OnDown(2, 1000))
         Assert.Empty(t.Tick(1499))
-        Assert.Equal(PressKind.ShortPress, t.OnUp(2, 1499))
+        AssertSeq({PressKind.ShortPress, PressKind.Release}, t.OnUp(2, 1499))
         Assert.Empty(t.Tick(3000))
     End Sub
 
@@ -77,8 +86,10 @@ Public Class KeyPressTrackerTests
     Public Sub KeyWithLongActionLongWhenHeld()
         Dim t = Tracker(2)
         t.OnDown(2, 1000)
-        Assert.True(t.Tick(1500).SequenceEqual({2}))
-        Assert.Null(t.OnUp(2, 2000))  ' danach kein kurzer Druck mehr
+        Dim due = t.Tick(1500)
+        Assert.Equal(2, due.Single().Key)
+        Assert.Equal(PressKind.LongPress, due.Single().Kind)
+        AssertSeq({PressKind.Release}, t.OnUp(2, 2000))  ' danach kein kurzer Druck mehr
         Assert.Empty(t.Tick(3000))
     End Sub
 
@@ -86,7 +97,7 @@ Public Class KeyPressTrackerTests
     Public Sub LateReleaseWithoutTickCountsAsLong()
         Dim t = Tracker(1)
         t.OnDown(1, 0)
-        Assert.Equal(PressKind.LongPress, t.OnUp(1, 800))
+        AssertSeq({PressKind.LongPress, PressKind.Release}, t.OnUp(1, 800))
     End Sub
 
     <Fact>
@@ -94,14 +105,15 @@ Public Class KeyPressTrackerTests
         Dim t = Tracker(1, 2)
         t.OnDown(1, 0)
         t.OnDown(2, 300)
-        Assert.True(t.Tick(500).SequenceEqual({1}))
-        Assert.Equal(PressKind.ShortPress, t.OnUp(2, 600))
+        Assert.Equal(1, t.Tick(500).Single().Key)
+        AssertSeq({PressKind.ShortPress, PressKind.Release}, t.OnUp(2, 600))
+        t.OnUp(1, 700)
         Assert.Equal(0, t.PendingCount)
     End Sub
 
     <Fact>
-    Public Sub UpWithoutDownIsIgnored()
-        Assert.Null(Tracker(1).OnUp(1, 100))
+    Public Sub UpWithoutDownOnlyReportsRelease()
+        AssertSeq({PressKind.Release}, Tracker(1).OnUp(1, 100))
     End Sub
 
     <Fact>
@@ -110,7 +122,63 @@ Public Class KeyPressTrackerTests
         t.OnDown(1, 0)
         t.Reset()
         Assert.Empty(t.Tick(1000))
-        Assert.Null(t.OnUp(1, 1000))
+        AssertSeq({PressKind.Release}, t.OnUp(1, 1000))
+    End Sub
+
+    <Fact>
+    Public Sub DoublePressWithinWindow()
+        Dim t = Caps(hasDouble:=True)
+        Assert.Empty(t.OnDown(0, 0))
+        AssertSeq({PressKind.Release}, t.OnUp(0, 80))
+        Assert.Empty(t.Tick(300))
+        AssertSeq({PressKind.DoublePress}, t.OnDown(0, 250))
+        AssertSeq({PressKind.Release}, t.OnUp(0, 320))
+        Assert.Empty(t.Tick(2000))
+        Assert.Equal(0, t.PendingCount)
+    End Sub
+
+    <Fact>
+    Public Sub SinglePressBecomesShortAfterDoubleWindow()
+        Dim t = Caps(hasDouble:=True)
+        t.OnDown(0, 0)
+        t.OnUp(0, 80)
+        Assert.Empty(t.Tick(380))
+        AssertSeq({PressKind.ShortPress}, Kinds(t.Tick(381)))
+        Assert.Equal(0, t.PendingCount)
+    End Sub
+
+    <Fact>
+    Public Sub LateSecondPressWithoutTickCountsAsTwoShorts()
+        Dim t = Caps(hasDouble:=True)
+        t.OnDown(0, 0)
+        t.OnUp(0, 50)
+        AssertSeq({PressKind.ShortPress}, t.OnDown(0, 600))   ' erster Druck verspätet als kurz, zweiter wartet wieder
+        AssertSeq({PressKind.Release}, t.OnUp(0, 650))
+        AssertSeq({PressKind.ShortPress}, Kinds(t.Tick(1000)))
+    End Sub
+
+    <Fact>
+    Public Sub LongShortAndDoubleTogether()
+        Dim t = Caps(hasLong:=True, hasDouble:=True)
+        t.OnDown(0, 0)
+        AssertSeq({PressKind.LongPress}, Kinds(t.Tick(500)))
+        AssertSeq({PressKind.Release}, t.OnUp(0, 700))
+        Assert.Empty(t.Tick(2000))                            ' nach lang kein Warten auf Doppeldruck
+        t.OnDown(0, 3000)
+        t.OnUp(0, 3100)
+        AssertSeq({PressKind.DoublePress}, t.OnDown(0, 3200))
+    End Sub
+
+    <Fact>
+    Public Sub RepeatWhileHeld()
+        Dim t = Caps(repeat:=True)
+        AssertSeq({PressKind.ShortPress}, t.OnDown(0, 0))
+        Assert.Empty(t.Tick(399))
+        AssertSeq({PressKind.Repeat}, Kinds(t.Tick(400)))
+        Assert.Empty(t.Tick(450))
+        AssertSeq({PressKind.Repeat}, Kinds(t.Tick(500)))
+        AssertSeq({PressKind.Release}, t.OnUp(0, 550))
+        Assert.Empty(t.Tick(5000))
     End Sub
 End Class
 

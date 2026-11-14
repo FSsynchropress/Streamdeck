@@ -24,6 +24,7 @@ Public Class MainForm
     Private ReadOnly _inspector As KeyInspector
     Private ReadOnly _tip As New ToolTip()
     Private _copied As KeyConfig
+    Private ReadOnly _learnButton As New ThemedButton("Taste lernen")
     Private _selected As Integer = 0
 
     Public Sub New(tray As TrayContext)
@@ -52,6 +53,7 @@ Public Class MainForm
         ' Ereignisse von Engine/Tray (kommen auf beliebigen Threads)
         AddHandler _engine.StateChanged, AddressOf Engine_StateChanged
         AddHandler _engine.KeyStateChanged, AddressOf Engine_KeyStateChanged
+        AddHandler _engine.KeyLearned, AddressOf Engine_KeyLearned
         AddHandler _tray.LogAdded, AddressOf Tray_LogAdded
         AddHandler _tray.ConnectionChanged, AddressOf UpdateConnectionStatus
 
@@ -99,6 +101,17 @@ Public Class MainForm
         Dim more As New ThemedButton("Weitere Seitenaktionen", ButtonKind.IconOnly, Theme.GlyphMore)
         AddHandler more.Click, Sub() ShowPageMenu(more)
         _tip.SetToolTip(more, "Weitere Seitenaktionen")
+        AddHandler _learnButton.Click, Sub() SetLearnMode(Not _engine.LearnMode)
+        _tip.SetToolTip(_learnButton, "Danach eine Taste am Gerät drücken – sie wird hier ausgewählt (ohne die Aktion auszuführen)")
+        Dim print As New ThemedButton("Druckvorlage")
+        AddHandler print.Click, Sub()
+                                    Using d As New KeycapSheetDialog(_engine.CurrentProfile)
+                                        d.ShowDialog(Me)
+                                    End Using
+                                End Sub
+        _tip.SetToolTip(print, "Belegung als Vorlage für die Keycap-Einleger drucken oder als Bild speichern")
+        actions.Controls.Add(_learnButton)
+        actions.Controls.Add(print)
         actions.Controls.Add(rename)
         actions.Controls.Add(more)
         head.Controls.Add(titles)
@@ -129,13 +142,14 @@ Public Class MainForm
         logCard.Controls.Add(logHead)
 
         ' --- Geräteplatte
-        Dim hint As New Label With {.Text = "Klick = bearbeiten · Rechtsklick = Menü · Ziehen = tauschen · Am Gerät gedrückte Tasten leuchten live auf",
+        Dim hint As New Label With {.Text = "Klick = bearbeiten · Rechtsklick = Menü · Ziehen = tauschen · Aktion von oben auf eine Taste ziehen = zuweisen · Am Gerät gedrückte Tasten leuchten live auf",
                                     .Dock = DockStyle.Bottom, .Height = 34, .TextAlign = ContentAlignment.MiddleCenter, .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F)}
         For i = 0 To ConfigStore.KeyCount - 1
             Dim b As New KeyButton(i)
             AddHandler b.Click, AddressOf KeyButton_Click
             AddHandler b.MouseUp, AddressOf KeyButton_MouseUp
             AddHandler b.SwapRequested, AddressOf SwapKeys
+            AddHandler b.ActionDropped, AddressOf DropAction
             _buttons(i) = b
             _plate.Controls.Add(b)
         Next
@@ -146,9 +160,43 @@ Public Class MainForm
         center.Controls.Add(hint)
         center.Controls.Add(Spacer(14, DockStyle.Bottom))
         center.Controls.Add(logCard)
+        center.Controls.Add(BuildPalette())
         center.Controls.Add(head)
         Return center
     End Function
+
+    ''' <summary>Aktionsleiste: jeden Aktionstyp per Drag-and-drop auf eine Taste ziehen.</summary>
+    Private Function BuildPalette() As Control
+        Dim strip As New FlowLayoutPanel With {.Dock = DockStyle.Top, .AutoSize = True, .WrapContents = True, .Padding = New Padding(0, 0, 0, 10)}
+        For Each t In ActionTypes.All.Where(Function(x) x <> ActionTypes.Wait)
+            strip.Controls.Add(New ActionChip(t))
+        Next
+        Return strip
+    End Function
+
+    Private Sub DropAction(index As Integer, actionType As String)
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, index) Then Return
+        SelectKey(index)
+        If _inspector.KeyIndex = index Then _inspector.ApplyActionType(actionType)
+    End Sub
+
+    ' ------------------------------------------------------------------ Taste lernen
+
+    Private Sub SetLearnMode(active As Boolean)
+        _engine.LearnMode = active
+        _learnButton.Text = If(active, "Taste am Gerät drücken …", "Taste lernen")
+        _learnButton.Invalidate()
+    End Sub
+
+    Private Sub Engine_KeyLearned(keyIndex As Integer)
+        OnUi(Sub()
+                 SetLearnMode(False)
+                 If keyIndex >= 0 AndAlso keyIndex < _buttons.Length Then
+                     SelectKey(keyIndex)
+                     _buttons(keyIndex).Focus()
+                 End If
+             End Sub)
+    End Sub
 
     Private Shared Function Spacer(height As Integer, Optional dock As DockStyle = DockStyle.Top) As Panel
         Return New Panel With {.Height = height, .Dock = dock}
@@ -322,6 +370,8 @@ Public Class MainForm
     Protected Overrides Sub OnFormClosed(e As FormClosedEventArgs)
         RemoveHandler _engine.StateChanged, AddressOf Engine_StateChanged
         RemoveHandler _engine.KeyStateChanged, AddressOf Engine_KeyStateChanged
+        RemoveHandler _engine.KeyLearned, AddressOf Engine_KeyLearned
+        _engine.LearnMode = False
         RemoveHandler _tray.LogAdded, AddressOf Tray_LogAdded
         RemoveHandler _tray.ConnectionChanged, AddressOf UpdateConnectionStatus
         MyBase.OnFormClosed(e)
@@ -417,7 +467,11 @@ Public Class MainForm
         Dim s = $"Taste {index} (Reihe {index \ Cols + 1}, Spalte {index Mod Cols + 1})"
         If k Is Nothing Then Return s & vbCrLf & "nicht belegt – klicken zum Bearbeiten"
         s &= vbCrLf & "Kurz: " & ActionTypes.Describe(k.Press)
+        If k.Repeat.GetValueOrDefault() Then s &= " (wiederholt beim Halten)"
         If k.LongPress IsNot Nothing Then s &= vbCrLf & "Lang: " & ActionTypes.Describe(k.LongPress)
+        If k.DoublePress IsNot Nothing Then s &= vbCrLf & "Doppelt: " & ActionTypes.Describe(k.DoublePress)
+        If k.Release IsNot Nothing Then s &= vbCrLf & "Loslassen: " & ActionTypes.Describe(k.Release)
+        If Not String.IsNullOrWhiteSpace(k.Description) Then s &= vbCrLf & vbCrLf & k.Description
         Return s
     End Function
 
@@ -709,7 +763,7 @@ Public Class MainForm
         End Try
         Using dlg As New SettingsForm(_engine.Config, autostartOn, _tray.Connection.PortName, _tray.ConfigPath)
             If dlg.ShowDialog(Me) = DialogResult.OK Then
-                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay)
+                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.DoublePressMs)
             End If
         End Using
     End Sub
@@ -730,6 +784,8 @@ Public Class KeyButton
 
     Public ReadOnly Property KeyIndex As Integer
     Public Event SwapRequested(fromIndex As Integer, toIndex As Integer)
+    ''' <summary>Aus der Aktionsleiste wurde ein Aktionstyp auf diese Taste gezogen.</summary>
+    Public Event ActionDropped(keyIndex As Integer, actionType As String)
 
     Public Sub New(index As Integer)
         KeyIndex = index
@@ -838,12 +894,14 @@ Public Class KeyButton
     End Sub
 
     Protected Overrides Sub OnDragOver(e As DragEventArgs)
-        e.Effect = If(e.Data.GetDataPresent("StreamDeckKey"), DragDropEffects.Move, DragDropEffects.None)
+        e.Effect = If(e.Data.GetDataPresent("StreamDeckKey"), DragDropEffects.Move,
+                      If(e.Data.GetDataPresent(ActionChip.DataFormat), DragDropEffects.Copy, DragDropEffects.None))
         MyBase.OnDragOver(e)
     End Sub
 
     Protected Overrides Sub OnDragDrop(e As DragEventArgs)
         If e.Data.GetDataPresent("StreamDeckKey") Then RaiseEvent SwapRequested(CInt(e.Data.GetData("StreamDeckKey")), KeyIndex)
+        If e.Data.GetDataPresent(ActionChip.DataFormat) Then RaiseEvent ActionDropped(KeyIndex, CStr(e.Data.GetData(ActionChip.DataFormat)))
         MyBase.OnDragDrop(e)
     End Sub
 
