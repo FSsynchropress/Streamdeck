@@ -39,8 +39,14 @@ Public Class VoiceMixSettings
     Public Property Microphone As String
     ''' <summary>Name (oder Teil davon) des Ausgabegeräts des virtuellen Kabels.</summary>
     Public Property Output As String = "CABLE Input"
-    ''' <summary>Lautstärke des Mikrofons im Mix, 0–100.</summary>
+    ''' <summary>Lautstärke des Mikrofons im Mix in %, 0–400 (über 100 = verstärken).</summary>
     Public Property MicVolume As Integer = 100
+    ''' <summary>Rauschsperre: Mikrofon zwischen dem Sprechen ausblenden (wirkt nur aufs Mikrofon, nicht auf die Sounds).</summary>
+    Public Property NoiseGate As Boolean = True
+    ''' <summary>Schwelle der Rauschsperre in dBFS (-80 … -10); leiser gilt als Rauschen.</summary>
+    Public Property NoiseGateDb As Integer = -45
+
+    Public Const MaxMicVolume As Integer = 400
 End Class
 
 Public Class ProfileConfig
