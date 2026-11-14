@@ -59,3 +59,76 @@ kuh.mp3                0546   https://bigsoundbank.com/UPLOAD/mp3/0546.mp3
 enten.mp3              0276   https://bigsoundbank.com/UPLOAD/mp3/0276.mp3
 schaf.mp3              2343   https://bigsoundbank.com/UPLOAD/mp3/2343.mp3
 ziege.mp3              0279   https://bigsoundbank.com/UPLOAD/mp3/0279.mp3
+
+
+Ergänzung „Streamer-Sounds“ – heruntergeladen am 14.11.2026, gleiche Quelle und Lizenz (CC0):
+
+Datei                  Nr.    Download
+airhorn.mp3            1832   https://bigsoundbank.com/UPLOAD/mp3/1832.mp3
+airhorn-doppelt.mp3    1830   https://bigsoundbank.com/UPLOAD/mp3/1830.mp3
+partytroete.mp3        1556   https://bigsoundbank.com/UPLOAD/mp3/1556.mp3
+partytroete-lang.mp3   1558   https://bigsoundbank.com/UPLOAD/mp3/1558.mp3
+oldtimer-hupe.mp3      2542   https://bigsoundbank.com/UPLOAD/mp3/2542.mp3
+fans-jubeln.mp3        0236   https://bigsoundbank.com/UPLOAD/mp3/0236.mp3
+applaus-klein.mp3      2479   https://bigsoundbank.com/UPLOAD/mp3/2479.mp3
+boeller.mp3            1138   https://bigsoundbank.com/UPLOAD/mp3/1138.mp3
+knallpistole.mp3       1997   https://bigsoundbank.com/UPLOAD/mp3/1997.mp3
+falsch-buzzer.mp3      1586   https://bigsoundbank.com/UPLOAD/mp3/1586.mp3
+metallstange.mp3       1776   https://bigsoundbank.com/UPLOAD/mp3/1776.mp3
+hinfallen.mp3          2452   https://bigsoundbank.com/UPLOAD/mp3/2452.mp3
+explosion.mp3          1807   https://bigsoundbank.com/UPLOAD/mp3/1807.mp3
+reifenquietschen.mp3   2371   https://bigsoundbank.com/UPLOAD/mp3/2371.mp3
+spiegel-zerbricht.mp3  0387   https://bigsoundbank.com/UPLOAD/mp3/0387.mp3
+funkrauschen.mp3       0313   https://bigsoundbank.com/UPLOAD/mp3/0313.mp3
+boing-2.mp3            2278   https://bigsoundbank.com/UPLOAD/mp3/2278.mp3
+boing-3.mp3            2282   https://bigsoundbank.com/UPLOAD/mp3/2282.mp3
+cartoon-klack.mp3      2262   https://bigsoundbank.com/UPLOAD/mp3/2262.mp3
+holzblock.mp3          2268   https://bigsoundbank.com/UPLOAD/mp3/2268.mp3
+tusch-2.mp3            2410   https://bigsoundbank.com/UPLOAD/mp3/2410.mp3
+peitsche.mp3           2961   https://bigsoundbank.com/UPLOAD/mp3/2961.mp3
+faustschlag.mp3        2465   https://bigsoundbank.com/UPLOAD/mp3/2465.mp3
+platsch.mp3            1529   https://bigsoundbank.com/UPLOAD/mp3/1529.mp3
+ballon-platzt.mp3      0551   https://bigsoundbank.com/UPLOAD/mp3/0551.mp3
+quietschente.mp3       0364   https://bigsoundbank.com/UPLOAD/mp3/0364.mp3
+zombie.mp3             2112   https://bigsoundbank.com/UPLOAD/mp3/2112.mp3
+schrei.mp3             1662   https://bigsoundbank.com/UPLOAD/mp3/1662.mp3
+eule.mp3               3459   https://bigsoundbank.com/UPLOAD/mp3/3459.mp3
+geisterfloete.mp3      2054   https://bigsoundbank.com/UPLOAD/mp3/2054.mp3
+evakuierungsalarm.mp3  3411   https://bigsoundbank.com/UPLOAD/mp3/3411.mp3
+laser.mp3              1758   https://bigsoundbank.com/UPLOAD/mp3/1758.mp3
+laser-2.mp3            1759   https://bigsoundbank.com/UPLOAD/mp3/1759.mp3
+benachrichtigung.mp3   2063   https://bigsoundbank.com/UPLOAD/mp3/2063.mp3
+benachrichtigung-2.mp3 2059   https://bigsoundbank.com/UPLOAD/mp3/2059.mp3
+nachricht-gesendet.mp3 1313   https://bigsoundbank.com/UPLOAD/mp3/1313.mp3
+muenze.mp3             0339   https://bigsoundbank.com/UPLOAD/mp3/0339.mp3
+mausklick.mp3          1742   https://bigsoundbank.com/UPLOAD/mp3/1742.mp3
+tuer-knallt.mp3        1501   https://bigsoundbank.com/UPLOAD/mp3/1501.mp3
+
+Selbst erzeugt (synthetisiert, keine fremden Samples) – gemeinfrei / CC0 1.0:
+Erzeugt mit tools/SoundSynth (dotnet run --project tools/SoundSynth -- app/StreamDeck.App/Sounds)
+
+bass-boom.mp3
+bass-drop.mp3
+countdown.mp3
+dramatik.mp3
+fanfare.mp3
+fehler-8bit.mp3
+game-over.mp3
+level-up.mp3
+muenze-8bit.mp3
+plattenkratzer.mp3
+power-up.mp3
+richtig.mp3
+roboter.mp3
+sad-trombone.mp3
+sieg-jingle.mp3
+slide-pfeife-hoch.mp3
+slide-pfeife-runter.mp3
+spannung.mp3
+sprung-8bit.mp3
+teleport.mp3
+ufo.mp3
+zensur-piep.mp3
+
+Katalog: katalog.json ordnet jeder Datei Anzeigename, Kategorie und Symbol für die Sound-Galerie zu.
+Dateien ohne Eintrag erscheinen dort unter „Sonstige“.

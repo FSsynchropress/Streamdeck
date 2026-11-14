@@ -27,14 +27,9 @@ Public Class SoundActionHandler
     ''' <summary>Ausblendzeit am Ende, wenn eine Dauer gesetzt ist.</summary>
     Public Const FadeOutSeconds As Double = 0.2
 
-    ''' <summary>Mitgelieferte Sounds als relative Pfade ("Sounds\tusch.mp3"), alphabetisch.</summary>
-    Public Shared Function GetBuiltInSounds() As List(Of String)
-        Dim dir = IO.Path.Combine(AppContext.BaseDirectory, BuiltInFolder)
-        If Not IO.Directory.Exists(dir) Then Return New List(Of String)
-        Return IO.Directory.GetFiles(dir).
-            Where(Function(f) {".mp3", ".wav"}.Contains(IO.Path.GetExtension(f).ToLowerInvariant())).
-            Select(Function(f) IO.Path.Combine(BuiltInFolder, IO.Path.GetFileName(f))).
-            OrderBy(Function(f) f, StringComparer.CurrentCultureIgnoreCase).ToList()
+    ''' <summary>Mitgelieferte Sounds mit Name, Kategorie und Symbol (Sounds\katalog.json); Pfade relativ ("Sounds\tusch.mp3").</summary>
+    Public Shared Function LoadBuiltInCatalog() As SoundCatalog
+        Return SoundCatalog.Load(IO.Path.Combine(AppContext.BaseDirectory, BuiltInFolder), BuiltInFolder)
     End Function
 
     ''' <summary>Namen der aktiven Ausgabegeräte (für die Auswahl im Editor).</summary>
