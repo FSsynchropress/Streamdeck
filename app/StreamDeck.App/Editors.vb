@@ -1037,7 +1037,9 @@ Public Class SettingsForm
     Private ReadOnly _voiceEnabled As New CheckBox With {.Text = "Sounds zusätzlich ins Mikrofon mischen (Discord, Teams …)", .AutoSize = True}
     Private ReadOnly _voiceMic As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
     Private ReadOnly _voiceOut As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
-    Private ReadOnly _voiceMicVolume As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceMicVolume As New NumericUpDown With {.Minimum = 0, .Maximum = VoiceMixSettings.MaxMicVolume, .Increment = 10, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceGate As New CheckBox With {.Text = "Rauschsperre: Hintergrundgeräusche in Sprechpausen ausblenden (nur Mikrofon, nicht die Sounds)", .AutoSize = True}
+    Private ReadOnly _voiceGateDb As New NumericUpDown With {.Minimum = -80, .Maximum = -10, .Width = 70, .TextAlign = HorizontalAlignment.Right}
     Private Const DefaultMicText As String = "(Standard-Mikrofon)"
 
     Public ReadOnly Property VoiceMix As VoiceMixSettings
@@ -1047,7 +1049,9 @@ Public Class SettingsForm
                 .Enabled = _voiceEnabled.Checked,
                 .Microphone = If(mic.Length = 0 OrElse mic = DefaultMicText, Nothing, mic),
                 .Output = If(String.IsNullOrWhiteSpace(_voiceOut.Text), "CABLE Input", _voiceOut.Text.Trim()),
-                .MicVolume = CInt(_voiceMicVolume.Value)}
+                .MicVolume = CInt(_voiceMicVolume.Value),
+                .NoiseGate = _voiceGate.Checked,
+                .NoiseGateDb = CInt(_voiceGateDb.Value)}
         End Get
     End Property
 
@@ -1122,7 +1126,9 @@ Public Class SettingsForm
         _voiceOut.Items.AddRange(SoundActionHandler.GetOutputDevices().ToArray())
         Dim cable = VoiceMixer.FindCableOutput(vm.Output)
         _voiceOut.Text = If(cable, vm.Output)
-        _voiceMicVolume.Value = Math.Max(0, Math.Min(100, vm.MicVolume))
+        _voiceMicVolume.Value = Math.Max(0, Math.Min(VoiceMixSettings.MaxMicVolume, vm.MicVolume))
+        _voiceGate.Checked = vm.NoiseGate
+        _voiceGateDb.Value = Math.Max(-80, Math.Min(-10, vm.NoiseGateDb))
 
         ' --- Gerät
         Dim device As New CardPanel With {.Fill = Theme.Raised, .Height = 68}
@@ -1157,7 +1163,8 @@ Public Class SettingsForm
             .Text = "Discord hört nur das Mikrofon. Die App mischt deshalb Mikrofon + Sounds und gibt beides auf einem virtuellen Kabel aus:" & vbCrLf &
                     "1. VB-Audio Virtual Cable installieren (kostenlos, vb-audio.com/Cable) und neu starten." & vbCrLf &
                     "2. Hier einschalten, darunter das echte Mikrofon wählen." & vbCrLf &
-                    "3. In Discord › Sprache & Video › Eingabegerät: 'CABLE Output'. Rauschunterdrückung (Krisp) ausschalten, sonst werden Sounds weggefiltert.",
+                    "3. In Discord › Sprache & Video › Eingabegerät: 'CABLE Output'. Dort Rauschunterdrückung (Krisp) und automatische Verstärkung ausschalten," &
+                    " sonst filtert Discord auch die Sounds weg – die Rauschsperre und die Verstärkung hier wirken nur aufs Mikrofon.",
             .AutoSize = True, .MaximumSize = New Size(550, 0), .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F), .Padding = New Padding(20, 0, 0, 8)}
         Dim cableFound = VoiceMixer.FindCableOutput(Nothing) IsNot Nothing
         Dim voiceStatus As New Label With {
@@ -1165,7 +1172,10 @@ Public Class SettingsForm
             .AutoSize = True, .ForeColor = If(cableFound, Theme.Good, Theme.Bad), .Font = Theme.Ui(8.5F), .Padding = New Padding(0, 4, 0, 0)}
         Dim micVolRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         micVolRow.Controls.Add(_voiceMicVolume)
-        micVolRow.Controls.Add(New Label With {.Text = "% – Sounds behalten die Lautstärke der Taste", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        micVolRow.Controls.Add(New Label With {.Text = "% – über 100 verstärkt ein leises Mikrofon (bis 400)", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim gateRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        gateRow.Controls.Add(_voiceGateDb)
+        gateRow.Controls.Add(New Label With {.Text = "dB – Schwelle: höher (z. B. -35) filtert mehr, schneidet aber leise Wörter ab", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
 
         ' --- OBS
         Dim obsHint As New Label With {.Text = "In OBS: Werkzeuge › WebSocket-Servereinstellungen › 'WebSocket-Server aktivieren'. Adresse und Passwort stehen unter 'Verbindungsinformationen anzeigen'. Das Passwort wird unverschlüsselt in config.json gespeichert.",
@@ -1179,6 +1189,7 @@ Public Class SettingsForm
                        Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
                        Section("Sounds in Discord (Sprach-Mix)"), _voiceEnabled, voiceHint, Theme.FieldLabel("Mikrofon"), _voiceMic,
                        Theme.FieldLabel("Virtuelles Kabel (Ausgabegerät)"), _voiceOut, voiceStatus, Theme.FieldLabel("Mikrofon-Lautstärke im Mix"), micVolRow,
+                       _voiceGate, gateRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 
         Dim folderLink As New LinkLabel With {.Text = "Konfigurationsordner öffnen", .AutoSize = True, .Padding = New Padding(0, 9, 0, 0), .Visible = configPath IsNot Nothing}

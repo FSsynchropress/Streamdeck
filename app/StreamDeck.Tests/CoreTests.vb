@@ -230,7 +230,9 @@ Public Class ConfigTests
                                           """press"":{""type"":""sound"",""file"":""a.mp3"",""voice"":false}}}}]}]}")
         Assert.True(cfg.VoiceMix.Enabled)
         Assert.Equal("Headset", cfg.VoiceMix.Microphone)
-        Assert.Equal(100, cfg.VoiceMix.MicVolume)   ' auf 0–100 begrenzt
+        Assert.Equal(250, cfg.VoiceMix.MicVolume)   ' Verstärkung bis 400 % erlaubt
+        Assert.True(cfg.VoiceMix.NoiseGate)
+        Assert.Equal(-45, cfg.VoiceMix.NoiseGateDb)
         Assert.False(cfg.Profiles(0).Pages(0).GetKey(0).Press.Voice)
 
         Dim back = ConfigStore.Deserialize(ConfigStore.Serialize(cfg))
@@ -240,6 +242,33 @@ Public Class ConfigTests
 
         Dim empty = ConfigStore.Deserialize("{""voiceMix"":null}")
         Assert.NotNull(empty.VoiceMix)
+
+        Dim clamped = ConfigStore.Deserialize("{""voiceMix"":{""micVolume"":900,""noiseGateDb"":5}}")
+        Assert.Equal(VoiceMixSettings.MaxMicVolume, clamped.VoiceMix.MicVolume)
+        Assert.Equal(-10, clamped.VoiceMix.NoiseGateDb)
+    End Sub
+
+    <Fact>
+    Public Sub NoiseGateMutesQuietAndPassesSpeech()
+        Dim gate As New NoiseGate(48000, 1, -45)
+        ' 1 s leises Rauschen (-60 dB) -> ausgeblendet
+        Dim quiet = Enumerable.Repeat(0.001F, 48000).ToArray()
+        gate.Process(quiet, 0, quiet.Length)
+        Assert.True(Math.Abs(quiet(quiet.Length - 1)) < 0.00001F)
+        ' Sprache (-12 dB) -> nach wenigen ms voll durch
+        Dim loud = Enumerable.Repeat(0.25F, 4800).ToArray()
+        gate.Process(loud, 0, loud.Length)
+        Assert.InRange(loud(loud.Length - 1), 0.24F, 0.25F)
+    End Sub
+
+    <Fact>
+    Public Sub SoftClipLimitsToOne()
+        Dim buf = {0.5F, 0.9F, 3.0F, -3.0F}
+        SoftClip.Process(buf, 0, buf.Length)
+        Assert.Equal(0.5F, buf(0))
+        Assert.InRange(buf(1), 0.8F, 0.9F)
+        Assert.InRange(buf(2), 0.99F, 1.0F)
+        Assert.InRange(buf(3), -1.0F, -0.99F)
     End Sub
 
     <Fact>
