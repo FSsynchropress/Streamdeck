@@ -53,16 +53,30 @@ Public Class ActionEditor
         New Choice("", "(keine Aktion)"),
         New Choice(ActionTypes.Hotkey, "Tastenkombination senden"),
         New Choice(ActionTypes.Text, "Text einfügen"),
-        New Choice(ActionTypes.Media, "Medientaste"),
+        New Choice(ActionTypes.Media, "Medientaste / Lautstärke"),
+        New Choice(ActionTypes.Mic, "Mikrofon stumm / an"),
         New Choice(ActionTypes.Sound, "Sound abspielen"),
+        New Choice(ActionTypes.Timer, "Timer / Countdown"),
         New Choice(ActionTypes.Launch, "Programm / Datei / Ordner öffnen"),
+        New Choice(ActionTypes.Close, "Programm schließen / beenden"),
         New Choice(ActionTypes.Url, "Webseite öffnen"),
+        New Choice(ActionTypes.Http, "HTTP-Anfrage / Webhook"),
         New Choice(ActionTypes.Command, "Befehl / Skript ausführen"),
         New Choice(ActionTypes.Obs, "OBS steuern"),
         New Choice(ActionTypes.Page, "Seite wechseln"),
         New Choice(ActionTypes.Profile, "Profil wechseln"),
         New Choice(ActionTypes.Multi, "Mehrere Aktionen nacheinander"),
+        New Choice(ActionTypes.Toggle, "Umschalter (bei jedem Druck die nächste Aktion)"),
         New Choice(ActionTypes.Wait, "Warten (für Mehrfach-Aktionen)")}
+
+    Private Shared ReadOnly MicChoices As Choice() = {
+        New Choice("toggle", "Umschalten (stumm ↔ an)"), New Choice("mute", "Stumm schalten"), New Choice("unmute", "Einschalten")}
+
+    Private Shared ReadOnly BrowserChoices As Choice() = {
+        New Choice("", "(Standardbrowser)"), New Choice("msedge.exe", "Microsoft Edge"), New Choice("chrome.exe", "Google Chrome"),
+        New Choice("firefox.exe", "Mozilla Firefox"), New Choice("brave.exe", "Brave"), New Choice("opera.exe", "Opera")}
+
+    Private _headersError As String
 
     Private Shared ReadOnly MediaChoices As Choice() = {
         New Choice("playpause", "Play / Pause"), New Choice("next", "Nächster Titel"), New Choice("prev", "Vorheriger Titel"),
@@ -189,6 +203,21 @@ Public Class ActionEditor
                 If op.EndsWith("Source", StringComparison.Ordinal) AndAlso String.IsNullOrWhiteSpace(a.Source) Then Return "Bitte den Namen der Quelle angeben."
             Case ActionTypes.Page, ActionTypes.Profile : If String.IsNullOrWhiteSpace(a.Target) Then Return "Bitte ein Ziel wählen."
             Case ActionTypes.Multi : If a.Actions Is Nothing OrElse a.Actions.Count = 0 Then Return "Bitte mindestens einen Schritt hinzufügen."
+            Case ActionTypes.Toggle : If a.Actions Is Nothing OrElse a.Actions.Count < 2 Then Return "Bitte mindestens zwei Aktionen hinzufügen, zwischen denen umgeschaltet wird."
+            Case ActionTypes.Close
+                Try
+                    ProcessActions.ProcessNameFromPath(a.Path)
+                Catch ex As ArgumentException
+                    Return ex.Message
+                End Try
+            Case ActionTypes.Http
+                If _headersError IsNot Nothing Then Return _headersError
+                Try
+                    HttpActions.BuildRequest(a).Dispose()
+                Catch ex As ArgumentException
+                    Return ex.Message
+                End Try
+            Case ActionTypes.Timer : If a.Seconds.GetValueOrDefault() <= 0 Then Return "Bitte eine Dauer größer 0 angeben."
         End Select
         Return Nothing
     End Function
@@ -201,10 +230,27 @@ Public Class ActionEditor
             Case ActionTypes.Text
                 r.Text = a.Text
                 If a.Paste.GetValueOrDefault() Then r.Paste = True
+                If a.Enter.GetValueOrDefault() Then r.Enter = True
             Case ActionTypes.Media : r.MediaKey = a.MediaKey
-            Case ActionTypes.Sound : r.File = a.File : r.Volume = a.Volume : r.Device = a.Device : r.Duration = a.Duration
+            Case ActionTypes.Sound
+                r.File = a.File : r.Volume = a.Volume : r.Device = a.Device : r.Duration = a.Duration
+                If a.Restart.GetValueOrDefault() Then r.Restart = True
             Case ActionTypes.Launch : r.Path = a.Path : r.Args = a.Args
-            Case ActionTypes.Url : r.Url = a.Url
+            Case ActionTypes.Close
+                r.Path = a.Path
+                If a.Force.GetValueOrDefault() Then r.Force = True
+            Case ActionTypes.Url : r.Url = a.Url : r.Browser = a.Browser
+            Case ActionTypes.Http
+                r.Url = a.Url
+                r.Method = If(String.IsNullOrEmpty(a.Method) OrElse a.Method = "GET", Nothing, a.Method)
+                If r.Method IsNot Nothing AndAlso r.Method <> "DELETE" Then
+                    r.Body = a.Body
+                    r.ContentType = a.ContentType
+                End If
+                If a.Headers IsNot Nothing AndAlso a.Headers.Count > 0 Then r.Headers = a.Headers
+            Case ActionTypes.Mic : r.Op = a.Op : r.Device = a.Device
+            Case ActionTypes.Timer : r.Seconds = a.Seconds : r.File = a.File : r.Volume = a.Volume : r.Device = a.Device
+            Case ActionTypes.Toggle : r.Actions = a.Actions
             Case ActionTypes.Command
                 r.Command = a.Command
                 r.Shell = a.Shell
@@ -226,18 +272,47 @@ Public Class ActionEditor
             Case ActionTypes.Text
                 _working.Text = DirectCast(_inputs("text"), TextBox).Text
                 _working.Paste = DirectCast(_inputs("paste"), CheckBox).Checked
+                _working.Enter = DirectCast(_inputs("enter"), CheckBox).Checked
             Case ActionTypes.Media : _working.MediaKey = Choice.GetValue(DirectCast(_inputs("media"), ComboBox))
             Case ActionTypes.Sound
                 _working.File = TextOf("file")
                 _working.Volume = CInt(DirectCast(_inputs("volume"), NumericUpDown).Value)
                 Dim dur = CDbl(DirectCast(_inputs("duration"), NumericUpDown).Value)
                 _working.Duration = If(dur > 0, dur, CType(Nothing, Double?))
-                Dim dev = Choice.GetValue(DirectCast(_inputs("device"), ComboBox))
-                _working.Device = If(String.IsNullOrEmpty(dev), Nothing, dev)
+                _working.Device = ComboValueOrNothing("device")
+                _working.Restart = DirectCast(_inputs("restart"), CheckBox).Checked
             Case ActionTypes.Launch
                 _working.Path = TextOf("path")
                 _working.Args = TextOf("args")
-            Case ActionTypes.Url : _working.Url = TextOf("url")
+            Case ActionTypes.Close
+                _working.Path = TextOf("path")
+                _working.Force = DirectCast(_inputs("force"), CheckBox).Checked
+            Case ActionTypes.Url
+                _working.Url = TextOf("url")
+                _working.Browser = ComboValueOrNothing("browser")
+            Case ActionTypes.Http
+                _working.Url = TextOf("url")
+                _working.Method = Choice.GetValue(DirectCast(_inputs("method"), ComboBox))
+                Dim body = _inputs("body").Text
+                _working.Body = If(body.Length = 0, Nothing, body)
+                _working.ContentType = TextOf("contentType")
+                _headersError = Nothing
+                Try
+                    _working.Headers = HttpActions.ParseHeaders(_inputs("headers").Text)
+                Catch ex As FormatException
+                    _headersError = ex.Message
+                End Try
+            Case ActionTypes.Mic
+                _working.Op = Choice.GetValue(DirectCast(_inputs("op"), ComboBox))
+                _working.Device = ComboValueOrNothing("device")
+            Case ActionTypes.Timer
+                Dim m = DirectCast(_inputs("minutes"), NumericUpDown).Value
+                Dim s = DirectCast(_inputs("seconds"), NumericUpDown).Value
+                _working.Seconds = CDbl(m * 60 + s)
+                _working.File = TextOf("file")
+                _working.Volume = CInt(DirectCast(_inputs("volume"), NumericUpDown).Value)
+                _working.Device = ComboValueOrNothing("device")
+            Case ActionTypes.Toggle : _working.Actions = _steps.ToList()
             Case ActionTypes.Command
                 _working.Shell = Choice.GetValue(DirectCast(_inputs("shell"), ComboBox))
                 _working.Command = TextOf("command")
@@ -255,6 +330,11 @@ Public Class ActionEditor
     Private Function TextOf(name As String) As String
         Dim s = _inputs(name).Text
         Return If(String.IsNullOrWhiteSpace(s), Nothing, s.Trim())
+    End Function
+
+    Private Function ComboValueOrNothing(name As String) As String
+        Dim v = Choice.GetValue(DirectCast(_inputs(name), ComboBox))
+        Return If(String.IsNullOrWhiteSpace(v), Nothing, v.Trim())
     End Function
 
     Private Sub TypeChanged(sender As Object, e As EventArgs)
@@ -297,13 +377,18 @@ Public Class ActionEditor
                 SetExtra(capture)
                 HotkeyCapture.Attach(tb, capture)
                 AddHint("z. B. Ctrl+Shift+M, Alt+F4, Win+D, F13 … F24. 'Aufnehmen' drücken, dann die Kombination auf der Tastatur drücken." &
-                        " F13–F24 gibt es auf normalen Tastaturen nicht – einfach eintippen.")
+                        " F13–F24 gibt es auf normalen Tastaturen nicht – einfach eintippen. Modifier gehen auch allein und links/rechts getrennt:" &
+                        " Ctrl, Shift, Alt, Win, LCtrl, RCtrl, LShift, RShift, LAlt, RAlt, LWin, RWin.")
             Case ActionTypes.Text
                 Dim tb = AddTextRow("text", "Text:", a.Text, multiline:=True)
                 tb.Height = 90
                 Dim cb As New CheckBox With {.Text = "Über die Zwischenablage einfügen (Strg+V) – schneller bei langen Texten", .AutoSize = True, .Checked = a.Paste.GetValueOrDefault()}
                 AddRow("", cb)
                 _inputs("paste") = cb
+                Dim enter As New CheckBox With {.Text = "Danach Enter drücken (z. B. zum Absenden im Chat)", .AutoSize = True, .Checked = a.Enter.GetValueOrDefault()}
+                AddRow("", enter)
+                _inputs("enter") = enter
+                AddHint("Umlaute, Emojis und andere Unicode-Zeichen werden unabhängig vom Tastaturlayout getippt.")
             Case ActionTypes.Media
                 AddComboRow("media", "Taste:", MediaChoices, If(a.MediaKey, "playpause"), editable:=False)
             Case ActionTypes.Sound
@@ -326,10 +411,11 @@ Public Class ActionEditor
                 AddRow("Dauer:", durRow)
                 durRow.Anchor = AnchorStyles.Left Or AnchorStyles.Top
                 _inputs("duration") = dur
-                Dim devices = New List(Of Choice) From {New Choice("", "(Standard-Ausgabegerät)")}
-                devices.AddRange(SoundActionHandler.GetOutputDevices().Select(Function(d) New Choice(d, d)))
-                AddComboRow("device", "Ausgabe:", devices, If(a.Device, ""), editable:=True)
-                AddHint("'Mitgeliefert' bietet 50 freie Sounds (CC0, BigSoundBank.com). Erneuter Tastendruck startet den Sound von vorn (Dauer 0) bzw. stoppt ihn (mit Dauer); mit Dauer wird am Ende kurz ausgeblendet.")
+                AddOutputDeviceRow(a.Device)
+                Dim restart As New CheckBox With {.Text = "Erneuter Druck startet von vorn (statt zu stoppen)", .AutoSize = True, .Checked = a.Restart.GetValueOrDefault()}
+                AddRow("", restart)
+                _inputs("restart") = restart
+                AddHint("'Mitgeliefert' bietet 50 freie Sounds (CC0, BigSoundBank.com). Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
             Case ActionTypes.Launch
                 Dim tb = AddTextRow("path", "Pfad:", a.Path)
                 Dim pick As New Button With {.Text = "Datei …", .AutoSize = True}
@@ -350,9 +436,70 @@ Public Class ActionEditor
                 SetExtra(flow)
                 AddTextRow("args", "Argumente:", a.Args)
                 AddHint("Programm (z. B. calc.exe), beliebige Datei oder Ordner. Umgebungsvariablen wie %USERPROFILE% sind erlaubt.")
+            Case ActionTypes.Close
+                Dim tb = AddTextRow("path", "Programm:", a.Path)
+                Dim pick As New Button With {.Text = "Datei …", .AutoSize = True}
+                AddHandler pick.Click, Sub()
+                                           Using d As New OpenFileDialog With {.Filter = "Programme (*.exe)|*.exe|Alle Dateien|*.*", .Title = "Programm wählen"}
+                                               If d.ShowDialog(FindForm()) = DialogResult.OK Then tb.Text = d.FileName
+                                           End Using
+                                       End Sub
+                SetExtra(pick)
+                Dim force As New CheckBox With {.Text = "Erzwingen (sofort beenden, ungespeicherte Daten gehen verloren)", .AutoSize = True, .Checked = a.Force.GetValueOrDefault()}
+                AddRow("", force)
+                _inputs("force") = force
+                AddHint("Prozessname oder Pfad, z. B. notepad.exe oder obs64. Ohne 'Erzwingen' wird das Fenster wie mit X geschlossen." &
+                        " Tipp: als Aktion für langen Druck auf derselben Taste wie 'Programm öffnen' legen.")
             Case ActionTypes.Url
                 AddTextRow("url", "Adresse:", a.Url)
-                AddHint("z. B. https://www.example.org – öffnet im Standardbrowser.")
+                AddComboRow("browser", "Browser:", BrowserChoices, If(a.Browser, ""), editable:=True)
+                AddHint("z. B. https://www.example.org. Browser frei wählbar – auch mit vollem Pfad zur EXE.")
+            Case ActionTypes.Http
+                AddComboRow("method", "Methode:", ActionTypes.HttpMethods.Select(Function(m) New Choice(m, m)), If(a.Method, "GET"), editable:=False)
+                AddTextRow("url", "Adresse:", a.Url)
+                Dim body = AddTextRow("body", "Inhalt (bei POST/PUT/PATCH):", a.Body, multiline:=True)
+                body.Height = 70
+                body.Font = Theme.Mono(9.0F)
+                Dim ct = AddTextRow("contentType", "Inhaltstyp:", a.ContentType)
+                ct.PlaceholderText = HttpActions.DefaultContentType
+                Dim headers = AddTextRow("headers", "Kopfzeilen (eine pro Zeile):", HttpActions.FormatHeaders(a.Headers), multiline:=True)
+                headers.Height = 50
+                headers.Font = Theme.Mono(9.0F)
+                headers.PlaceholderText = "Authorization: Bearer …"
+                AddHint("Läuft im Hintergrund, z. B. für n8n-Webhooks oder Home Assistant. Fehler (kein 2xx-Status, Zeitüberschreitung nach 15 s) erscheinen im Protokoll.")
+            Case ActionTypes.Mic
+                AddComboRow("op", "Aktion:", MicChoices, If(a.Op, "toggle"), editable:=False)
+                Dim inputs = New List(Of Choice) From {New Choice("", "(alle Mikrofone)")}
+                inputs.AddRange(MicActionHandler.GetInputDevices().Select(Function(d) New Choice(d, d)))
+                AddComboRow("device", "Gerät:", inputs, If(a.Device, ""), editable:=True)
+                AddHint("Schaltet das Mikrofon systemweit in Windows stumm – wirkt in allen Programmen (Teams, Discord, OBS …).")
+            Case ActionTypes.Timer
+                Dim total = CInt(Math.Max(0, Math.Min(ActionRunner.MaxTimerSeconds, Math.Round(a.Seconds.GetValueOrDefault(300)))))
+                Dim minutes As New NumericUpDown With {.Minimum = 0, .Maximum = CDec(ActionRunner.MaxTimerSeconds / 60), .Value = total \ 60, .Width = 70}
+                Dim seconds As New NumericUpDown With {.Minimum = 0, .Maximum = 59, .Value = total Mod 60, .Width = 60}
+                Dim timeRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
+                timeRow.Controls.Add(minutes)
+                timeRow.Controls.Add(New Label With {.Text = "min", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(3, 6, 10, 3)})
+                timeRow.Controls.Add(seconds)
+                timeRow.Controls.Add(New Label With {.Text = "s", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(3, 6, 3, 3)})
+                AddRow("Dauer:", timeRow)
+                timeRow.Anchor = AnchorStyles.Left Or AnchorStyles.Top
+                _inputs("minutes") = minutes
+                _inputs("seconds") = seconds
+                Dim tb = AddTextRow("file", "Ton am Ende:", a.File)
+                tb.PlaceholderText = ActionRunner.DefaultTimerSound
+                Dim builtIn As New Button With {.Text = "Mitgeliefert ▾", .AutoSize = True}
+                AddHandler builtIn.Click, Sub() ShowBuiltInSounds(builtIn, tb)
+                Dim soundButtons As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
+                soundButtons.Controls.Add(builtIn)
+                soundButtons.Controls.Add(BrowseButton(tb, "Sounddateien (*.wav;*.mp3)|*.wav;*.mp3|Alle Dateien|*.*"))
+                SetExtra(soundButtons)
+                Dim vol As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, a.Volume.GetValueOrDefault(100))), .Width = 70}
+                AddRow("Lautstärke %:", vol)
+                vol.Anchor = AnchorStyles.Left Or AnchorStyles.Top
+                _inputs("volume") = vol
+                AddOutputDeviceRow(a.Device)
+                AddHint("Startet beim Druck; erneuter Druck bricht den laufenden Timer ab. Am Ende erscheint ein Hinweis und der Ton wird gespielt.")
             Case ActionTypes.Command
                 AddComboRow("shell", "Shell:", {New Choice("cmd", "Eingabeaufforderung (cmd)"), New Choice("powershell", "Windows PowerShell"), New Choice("pwsh", "PowerShell 7 (pwsh)")},
                             If(a.Shell, "cmd"), editable:=False)
@@ -377,7 +524,10 @@ Public Class ActionEditor
                 AddComboRow("target", "Profil:", _profileNames.Select(Function(n) New Choice(n, n)), If(a.Target, _profileNames.FirstOrDefault()), editable:=True)
                 AddHint("Wechselt das manuell gewählte Profil.")
             Case ActionTypes.Multi
-                BuildStepsEditor()
+                BuildStepsEditor("Die Schritte laufen nacheinander (Doppelklick = bearbeiten). Für Pausen den Schritt 'Warten' verwenden.")
+            Case ActionTypes.Toggle
+                BuildStepsEditor("Jeder Tastendruck führt die nächste Aktion aus: 1, 2, 1, 2 … Zwei Tastenkombinationen ergeben einen Hotkey-Switch," &
+                                 " zwei 'Mehrere Aktionen' einen Multi-Action-Switch. Mehr als zwei Einträge laufen reihum.")
             Case ActionTypes.Wait
                 Dim ms As New NumericUpDown With {.Minimum = 0, .Maximum = ActionRunner.MaxWaitMs, .Increment = 100, .Value = Math.Max(0, Math.Min(ActionRunner.MaxWaitMs, a.Ms.GetValueOrDefault(500))), .Width = 90}
                 AddRow("Millisekunden:", ms)
@@ -389,7 +539,13 @@ Public Class ActionEditor
         _fields.ResumeLayout(True)
     End Sub
 
-    Private Sub BuildStepsEditor()
+    Private Sub AddOutputDeviceRow(selected As String)
+        Dim devices = New List(Of Choice) From {New Choice("", "(Standard-Ausgabegerät)")}
+        devices.AddRange(SoundActionHandler.GetOutputDevices().Select(Function(d) New Choice(d, d)))
+        AddComboRow("device", "Ausgabe:", devices, If(selected, ""), editable:=True)
+    End Sub
+
+    Private Sub BuildStepsEditor(hint As String)
         _stepList = New ListBox With {.Height = 190, .IntegralHeight = False, .DrawMode = DrawMode.OwnerDrawFixed, .ItemHeight = 30}
         AddHandler _stepList.DrawItem, AddressOf DrawStep
         RefreshSteps()
@@ -415,7 +571,7 @@ Public Class ActionEditor
         buttons.Controls.Add(StepButton("Hoch", Sub() MoveStep(-1), Theme.GlyphUp))
         buttons.Controls.Add(StepButton("Runter", Sub() MoveStep(1), Theme.GlyphDown))
         SetExtra(buttons)
-        AddHint("Die Schritte laufen nacheinander (Doppelklick = bearbeiten). Für Pausen den Schritt 'Warten' verwenden.")
+        AddHint(hint)
     End Sub
 
     Private Shared Function StepButton(text As String, handler As Action, Optional glyph As String = Nothing) As ThemedButton

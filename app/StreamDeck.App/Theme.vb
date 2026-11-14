@@ -130,6 +130,11 @@ Public Module Theme
             Case ActionTypes.Profile : Return ChrW(&HE77B)
             Case ActionTypes.Multi : Return ChrW(&HE81E)
             Case ActionTypes.Wait : Return ChrW(&HE916)
+            Case ActionTypes.Close : Return ChrW(&HE711)
+            Case ActionTypes.Http : Return ChrW(&HE909)
+            Case ActionTypes.Mic : Return If(String.Equals(a.Op, "unmute", StringComparison.OrdinalIgnoreCase), ChrW(&HE720), ChrW(&HEC54))
+            Case ActionTypes.Timer : Return ChrW(&HE823)
+            Case ActionTypes.Toggle : Return ChrW(&HE8AB)
             Case Else : Return ChrW(&HE946)
         End Select
     End Function
@@ -150,6 +155,11 @@ Public Module Theme
             Case ActionTypes.Profile : Return "Profil"
             Case ActionTypes.Multi : Return "Mehrfach"
             Case ActionTypes.Wait : Return "Warten"
+            Case ActionTypes.Close : Return "Schließen"
+            Case ActionTypes.Http : Return "HTTP"
+            Case ActionTypes.Mic : Return "Mikro"
+            Case ActionTypes.Timer : Return "Timer"
+            Case ActionTypes.Toggle : Return "Umschalter"
             Case Else : Return a.ActionType
         End Select
     End Function

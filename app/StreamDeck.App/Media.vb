@@ -8,7 +8,7 @@ Imports StreamDeck.Core
 
 ' ====================================================================== Sound
 
-''' <summary>Spielt WAV/MP3 ab. Erneuter Druck startet den Sound neu (ganze Datei) bzw. stoppt ihn (mit Dauer).</summary>
+''' <summary>Spielt WAV/MP3 ab. Erneuter Druck stoppt den laufenden Sound (mit restart: startet ihn neu).</summary>
 Public Class SoundActionHandler
     Implements IActionHandler, IDisposable
 
@@ -75,8 +75,8 @@ Public Class SoundActionHandler
             ' Stop() NICHT unter _lock aufrufen: NAudio wartet dabei auf den
             ' Wiedergabe-Thread, und dessen PlaybackStopped-Handler braucht _lock -> Deadlock.
             running.Stop()
-            ' Mit Dauer: erneuter Druck stoppt nur. Ganze Datei (Dauer 0): von vorn starten.
-            If a.Duration.GetValueOrDefault() > 0 Then Return Task.CompletedTask
+            ' Erneuter Druck stoppt – außer "restart" ist gesetzt, dann von vorn starten.
+            If Not a.Restart.GetValueOrDefault() Then Return Task.CompletedTask
         End If
 
         If Not IO.File.Exists(file) Then Throw New IO.FileNotFoundException($"Datei nicht gefunden: {file}")
@@ -177,6 +177,92 @@ Public Class TrimFadeSampleProvider
         End If
         _position += n
         Return n
+    End Function
+End Class
+
+' ====================================================================== Mikrofon
+
+''' <summary>
+''' Schaltet Mikrofone systemweit stumm/an (Windows-Lautstärke der Aufnahmegeräte, wirkt in allen Programmen).
+''' Ohne Gerätename: alle aktiven Aufnahmegeräte; der neue Zustand richtet sich beim Umschalten nach dem
+''' Standard-Aufnahmegerät, damit alle Geräte danach gleich stehen.
+''' </summary>
+Public Class MicActionHandler
+    Implements IActionHandler
+
+    Private ReadOnly _runner As ActionRunner
+    Private ReadOnly _log As Action(Of String)
+
+    Public Sub New(runner As ActionRunner, log As Action(Of String))
+        _runner = runner
+        _log = log
+    End Sub
+
+    ''' <summary>Namen der aktiven Aufnahmegeräte (für die Auswahl im Editor).</summary>
+    Public Shared Function GetInputDevices() As List(Of String)
+        Dim result As New List(Of String)
+        Try
+            Using en As New MMDeviceEnumerator()
+                For Each d In en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active)
+                    result.Add(d.FriendlyName)
+                    d.Dispose()
+                Next
+            End Using
+        Catch
+        End Try
+        Return result
+    End Function
+
+    Public Function ExecuteAsync(a As ActionConfig, context As ActionContext) As Task Implements IActionHandler.ExecuteAsync
+        Dim muted = SetMute(If(a.Op, "toggle"), a.Device)
+        Dim text = If(muted, "Mikrofon stumm", "Mikrofon an")
+        _log(text)
+        _runner.RaiseNotify(text, If(String.IsNullOrWhiteSpace(a.Device), "alle Aufnahmegeräte", a.Device))
+        Return Task.CompletedTask
+    End Function
+
+    ''' <summary>Setzt den Zustand und liefert, ob jetzt stumm ist.</summary>
+    Public Shared Function SetMute(op As String, deviceName As String) As Boolean
+        Using en As New MMDeviceEnumerator()
+            Dim all = en.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList()
+            Try
+                If all.Count = 0 Then Throw New InvalidOperationException("Kein aktives Mikrofon gefunden.")
+                Dim targets = all
+                If Not String.IsNullOrWhiteSpace(deviceName) Then
+                    Dim name = deviceName.Trim()
+                    targets = all.Where(Function(d) d.FriendlyName.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList()
+                    If targets.Count = 0 Then targets = all.Where(Function(d) d.FriendlyName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0).ToList()
+                    If targets.Count = 0 Then Throw New InvalidOperationException($"Aufnahmegerät '{deviceName}' nicht gefunden.")
+                End If
+
+                Dim mute As Boolean
+                Select Case op.Trim().ToLowerInvariant()
+                    Case "mute" : mute = True
+                    Case "unmute" : mute = False
+                    Case "toggle", ""
+                        Dim reference = targets(0)
+                        If targets.Count > 1 Then
+                            Try
+                                Dim defId = en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications).ID
+                                reference = If(targets.FirstOrDefault(Function(d) d.ID = defId), targets(0))
+                            Catch
+                            End Try
+                        End If
+                        mute = Not reference.AudioEndpointVolume.Mute
+                    Case Else
+                        Throw New ArgumentException($"Unbekannte Mikrofon-Aktion '{op}'.")
+                End Select
+
+                For Each d In targets
+                    d.AudioEndpointVolume.Mute = mute
+                Next
+                Return mute
+            Finally
+                For Each d In all
+                    d.Dispose()
+                Next
+            End Try
+        End Using
     End Function
 End Class
 

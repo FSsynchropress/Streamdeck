@@ -217,6 +217,7 @@ Public Module NativeInput
         runner.Register(ActionTypes.Text, DelegateActionHandler.FromSync(
             Sub(a)
                 If a.Paste.GetValueOrDefault() Then PasteText(a.Text) Else TypeText(a.Text)
+                If a.Enter.GetValueOrDefault() Then SendCombo({VK_RETURN})
             End Sub))
     End Sub
 End Module
