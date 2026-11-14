@@ -226,6 +226,33 @@ Public Class MainForm
         Return b
     End Function
 
+    ''' <summary>Öffnet ein neues GitHub-Issue mit vorausgefüllter Vorlage (Bug Report oder Funktionswunsch).</summary>
+    Private Sub OpenIssue(bug As Boolean)
+        Dim version = _tray.Updates.CurrentVersion
+        Dim title As String, label As String, body As String
+        If bug Then
+            title = "[Bug] "
+            label = "bug"
+            body = "**Was ist passiert?**" & vbLf & vbLf & vbLf &
+                   "**Was hätte passieren sollen?**" & vbLf & vbLf & vbLf &
+                   "**Schritte zum Nachstellen**" & vbLf & "1. " & vbLf & vbLf &
+                   "**Protokoll** (Tray-Menü „Protokollordner öffnen“, relevante Zeilen einfügen)" & vbLf & vbLf & vbLf &
+                   "---" & vbLf & $"App-Version: {version}" & vbLf & $"Windows: {Environment.OSVersion.VersionString}"
+        Else
+            title = "[Idee] "
+            label = "enhancement"
+            body = "**Welche Funktion wünschst du dir?**" & vbLf & vbLf & vbLf &
+                   "**Wofür brauchst du sie / welches Problem löst sie?**" & vbLf & vbLf & vbLf &
+                   "---" & vbLf & $"App-Version: {version}"
+        End If
+        Dim url = $"{Updater.RepoUrl}/issues/new?labels={label}&title={Uri.EscapeDataString(title)}&body={Uri.EscapeDataString(body)}"
+        Try
+            Process.Start(New ProcessStartInfo(url) With {.UseShellExecute = True})
+        Catch ex As Exception
+            MessageBox.Show(Me, $"Der Browser konnte nicht geöffnet werden:{vbCrLf}{ex.Message}", If(bug, "Fehler melden", "Funktion vorschlagen"), MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End Try
+    End Sub
+
     Private Sub LayoutDeck()
         If _deckHost.ClientSize.Width <= 0 OrElse _deckHost.ClientSize.Height <= 0 Then Return
         Dim pad = Theme.PxI(Me, 22)
@@ -804,7 +831,7 @@ Public Class MainForm
         End Try
         Using dlg As New SettingsForm(_engine.Config, autostartOn, _tray.Connection.PortName, _tray.ConfigPath)
             If dlg.ShowDialog(Me) = DialogResult.OK Then
-                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.DoublePressMs, dlg.RunAsAdmin, dlg.VoiceMix)
+                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.ShowNavigation, dlg.DoublePressMs, dlg.RunAsAdmin, dlg.VoiceMix)
             End If
         End Using
     End Sub

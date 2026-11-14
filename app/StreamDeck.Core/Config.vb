@@ -11,6 +11,8 @@ Public Class DeckConfig
     Public Property FolderBackKey As Integer = 0
     ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
     Public Property ShowOverlay As Boolean = True
+    ''' <summary>Wechsel von Seite, Ordner oder Profil anzeigen (Einblendung bzw. Benachrichtigung). Aus = nur ins Protokoll.</summary>
+    Public Property ShowNavigation As Boolean = True
     ''' <summary>App mit Administratorrechten starten (nötig für Hotkeys in Programmen, die als Administrator laufen).</summary>
     Public Property RunAsAdmin As Boolean
     Public Property Obs As New ObsSettings

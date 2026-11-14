@@ -390,6 +390,17 @@ Public Class ConfigTests
     End Sub
 
     <Fact>
+    Public Sub ShowNavigationDefaultsOnAndCanBeSwitchedOff()
+        Assert.True(New DeckConfig().ShowNavigation)
+        Assert.True(ConfigStore.Deserialize("{""profiles"":[]}").ShowNavigation)   ' alte Konfigurationen ohne das Feld
+        Dim cfg = ConfigStore.CreateDefault()
+        cfg.ShowNavigation = False
+        Dim json = ConfigStore.Serialize(cfg)
+        Assert.Contains("""showNavigation"": false", json)
+        Assert.False(ConfigStore.Deserialize(json).ShowNavigation)
+    End Sub
+
+    <Fact>
     Public Sub MiniViewIsNormalized()
         Dim cfg As New DeckConfig With {.MiniView = Nothing}
         ConfigStore.Normalize(cfg)
