@@ -139,6 +139,14 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 
 ---
 
+## Arbeitsweise mit GitHub
+- Repo: `FSsynchropress/Streamdeck` (öffentlich), Hauptbranch `main`
+- Keine direkten Commits auf `main`: jede Änderung auf einem eigenen Branch (`feature/…`, `fix/…`, `docs/…`), dann Pull Request per `gh pr create`
+- Gemergt wird erst, wenn der Besitzer den PR auf GitHub freigibt
+- Releases weiterhin nur über Tags auf `main` (siehe „Installation & Updates“)
+
+---
+
 ## Vorgehen
 1. Firmware: Tasten einlesen, entprellen, `D`/`U` seriell ausgeben, `HELLO?`/`PING` beantworten
 2. App: Gerät finden, verbinden, Ereignisse im Log anzeigen
