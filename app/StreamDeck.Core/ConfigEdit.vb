@@ -61,6 +61,49 @@ Public Module ConfigEdit
         Return page
     End Function
 
+    ''' <summary>
+    ''' Seite zum Ordner machen (oder zurück zur normalen Seite). Liegt auf der festen Zurück-Taste schon
+    ''' eine Belegung, wird sie auf die erste freie Taste verschoben. Liefert False, wenn dafür kein Platz war
+    ''' (die Belegung geht dann verloren) oder die Seite die Startseite ist.
+    ''' </summary>
+    Public Function SetFolder(cfg As DeckConfig, profile As ProfileConfig, pageName As String, folder As Boolean) As Boolean
+        Dim page = profile.FindPage(pageName)
+        If page Is Nothing Then Return False
+        If Not folder Then
+            page.Folder = Nothing
+            ' die Zurück-Taste bleibt als normale Taste stehen
+            Return True
+        End If
+        If page Is profile.Pages(0) Then Return False
+        page.Folder = True
+        Dim occupying = page.GetKey(cfg.FolderBackKey)
+        If occupying Is Nothing OrElse IsBackKey(occupying) Then
+            page.SetKey(cfg.FolderBackKey, ConfigStore.FolderBackKeyConfig())
+            Return True
+        End If
+        Dim free = Enumerable.Range(0, ConfigStore.KeyCount).Where(Function(i) i <> cfg.FolderBackKey AndAlso page.GetKey(i) Is Nothing).DefaultIfEmpty(-1).First()
+        If free >= 0 Then page.SetKey(free, occupying)
+        page.SetKey(cfg.FolderBackKey, ConfigStore.FolderBackKeyConfig())
+        Return free >= 0
+    End Function
+
+    ''' <summary>Feste Zurück-Taste der Ordner verlegen: alte Zurück-Taste entfernen, neue setzen (Belegungen werden verschoben).</summary>
+    Public Sub SetFolderBackKey(cfg As DeckConfig, newKey As Integer)
+        If newKey < 0 OrElse newKey >= ConfigStore.KeyCount OrElse newKey = cfg.FolderBackKey Then Return
+        Dim old = cfg.FolderBackKey
+        cfg.FolderBackKey = newKey
+        For Each p In cfg.Profiles
+            For Each pg In p.Pages.Where(Function(x) x.IsFolder).ToList()
+                If IsBackKey(pg.GetKey(old)) Then pg.SetKey(old, Nothing)
+                SetFolder(cfg, p, pg.Name, True)
+            Next
+        Next
+    End Sub
+
+    Private Function IsBackKey(k As KeyConfig) As Boolean
+        Return k IsNot Nothing AndAlso k.Press IsNot Nothing AndAlso IsType(k.Press, ActionTypes.Page) AndAlso String.Equals(k.Press.Target, ActionTypes.PageBack, StringComparison.OrdinalIgnoreCase) AndAlso k.LongPress Is Nothing
+    End Function
+
     ''' <summary>Benennt eine Seite um und passt alle Seitenwechsel im Profil an.</summary>
     Public Sub RenamePage(profile As ProfileConfig, oldName As String, newName As String)
         Dim page = profile.FindPage(oldName)

@@ -104,15 +104,18 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `http` | HTTP-Anfrage im Hintergrund (`method`, `url`, `body`, `contentType`, `headers`), z. B. n8n-Webhook |
 | `command` | Kommando oder PowerShell-Skript ausführen (versteckt oder sichtbar) |
 | `obs` | OBS-Szene wechseln, Aufnahme/Stream starten/stoppen, Quelle ein-/ausblenden |
-| `page` | Zu einer anderen Seite/Ordner wechseln (mehr als 15 Belegungen) |
-| `profile` | Profil wechseln |
-| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) |
+| `page` | Zu einer Seite/einem Ordner wechseln; `target` auch `@back`, `@first`, `@next`, `@prev` (Blättern überspringt Ordner) |
+| `profile` | Profil wechseln; `target` auch `@next`/`@prev` (reihum) |
+| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) oder mit `parallel: true` gleichzeitig |
 | `toggle` | Bei jedem Druck die nächste Aktion aus `actions` (Hotkey-Switch, Multi-Action-Switch) |
+| `random` | Zufällig eine Aktion aus `actions` (nie zweimal dieselbe hintereinander) |
 
 Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT.log` (14 Tage, Tray-Menü „Protokollordner öffnen“).
 
 ### Seiten & Profile
 - Mehrere **Seiten** pro Profil; eine Taste kann als „Zurück"-Taste dienen
+- **Ordner** = Seite mit `"folder": true`: per Taste geöffnet, verschachtelbar, feste Zurück-Taste (`folderBackKey`, Standard 0), beim Blättern übersprungen; die Startseite ist nie ein Ordner
+- Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (`showOverlay`); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
 
 ### Beispiel-Konfiguration
