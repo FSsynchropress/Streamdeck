@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+.vs/
+*.user
+app/publish/
+app/Releases/
+TestResults/
+
+# PlatformIO / Firmware
+.pio/
+firmware/test/build/
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini

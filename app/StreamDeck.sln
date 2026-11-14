@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "StreamDeck.Core", "StreamDeck.Core\StreamDeck.Core.vbproj", "{0D6073D9-7997-44FA-AF61-2FCE17BE485F}"
+EndProject
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "StreamDeck.App", "StreamDeck.App\StreamDeck.App.vbproj", "{DD742888-F98D-4532-9962-06B907771C38}"
+EndProject
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "StreamDeck.Tests", "StreamDeck.Tests\StreamDeck.Tests.vbproj", "{A4580299-4302-4390-B662-C1A56EE3E0F6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0D6073D9-7997-44FA-AF61-2FCE17BE485F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0D6073D9-7997-44FA-AF61-2FCE17BE485F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0D6073D9-7997-44FA-AF61-2FCE17BE485F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0D6073D9-7997-44FA-AF61-2FCE17BE485F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD742888-F98D-4532-9962-06B907771C38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD742888-F98D-4532-9962-06B907771C38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD742888-F98D-4532-9962-06B907771C38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD742888-F98D-4532-9962-06B907771C38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4580299-4302-4390-B662-C1A56EE3E0F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4580299-4302-4390-B662-C1A56EE3E0F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4580299-4302-4390-B662-C1A56EE3E0F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4580299-4302-4390-B662-C1A56EE3E0F6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

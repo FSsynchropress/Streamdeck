@@ -1,0 +1,56 @@
+# Neue Version veröffentlichen:
+#   git tag v1.0.1
+#   git push origin v1.0.1
+# Baut die App, testet, packt sie mit Velopack und legt ein GitHub-Release mit Setup an.
+# Installierte Apps finden das Release automatisch und aktualisieren sich.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  VPK_VERSION: 1.2.161
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: app/global.json
+
+      - name: Version aus Tag
+        id: ver
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Tag '$v' ist keine Version wie v1.2.3" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Tests
+        run: dotnet test app/StreamDeck.sln -c Release
+
+      - name: vpk installieren
+        run: dotnet tool install -g vpk --version ${{ env.VPK_VERSION }}
+
+      - name: Letztes Release laden (für Delta-Updates)
+        shell: pwsh
+        run: vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} -o app/Releases
+        continue-on-error: true   # beim allerersten Release gibt es noch nichts
+
+      - name: Bauen und packen
+        shell: pwsh
+        run: ./tools/build-release.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Release hochladen
+        shell: pwsh
+        run: >
+          vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }} -o app/Releases
+          --publish --releaseName "DIY Stream Deck ${{ steps.ver.outputs.version }}" --tag ${{ github.ref_name }}

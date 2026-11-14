@@ -1,0 +1,61 @@
+Mitgelieferte Sounds
+====================
+
+Quelle: BigSoundBank.com – Joseph SARDIN (https://bigsoundbank.com)
+Lizenz: Creative Commons CC0 1.0 Universal / gemeinfrei (https://bigsoundbank.com/licenses.html)
+Freie Nutzung, auch kommerziell, ohne Namensnennung. Freiwillige Nennung:
+"Additional sounds: Joseph SARDIN - BigSoundBank.com"
+
+Heruntergeladen am 13.11.2026 als MP3 von https://bigsoundbank.com/UPLOAD/mp3/<Nr>.mp3
+
+Datei                  Nr.    Download
+tusch.mp3              0433   https://bigsoundbank.com/UPLOAD/mp3/0433.mp3
+trommelwirbel.mp3      2402   https://bigsoundbank.com/UPLOAD/mp3/2402.mp3
+applaus.mp3            2363   https://bigsoundbank.com/UPLOAD/mp3/2363.mp3
+jubel.mp3              0237   https://bigsoundbank.com/UPLOAD/mp3/0237.mp3
+lachen.mp3             0475   https://bigsoundbank.com/UPLOAD/mp3/0475.mp3
+ueberraschung.mp3      3534   https://bigsoundbank.com/UPLOAD/mp3/3534.mp3
+gong.mp3               1485   https://bigsoundbank.com/UPLOAD/mp3/1485.mp3
+triangel.mp3           1687   https://bigsoundbank.com/UPLOAD/mp3/1687.mp3
+traumglocken.mp3       2079   https://bigsoundbank.com/UPLOAD/mp3/2079.mp3
+grillen.mp3            1020   https://bigsoundbank.com/UPLOAD/mp3/1020.mp3
+hupe.mp3               1830   https://bigsoundbank.com/UPLOAD/mp3/1830.mp3
+autohupe.mp3           0258   https://bigsoundbank.com/UPLOAD/mp3/0258.mp3
+thekenklingel.mp3      2531   https://bigsoundbank.com/UPLOAD/mp3/2531.mp3
+tuerklingel.mp3        2365   https://bigsoundbank.com/UPLOAD/mp3/2365.mp3
+mikrowelle.mp3         1631   https://bigsoundbank.com/UPLOAD/mp3/1631.mp3
+schreibmaschine.mp3    2844   https://bigsoundbank.com/UPLOAD/mp3/2844.mp3
+kasse.mp3              1417   https://bigsoundbank.com/UPLOAD/mp3/1417.mp3
+alarm.mp3              0035   https://bigsoundbank.com/UPLOAD/mp3/0035.mp3
+idee.mp3               1399   https://bigsoundbank.com/UPLOAD/mp3/1399.mp3
+boing.mp3              2284   https://bigsoundbank.com/UPLOAD/mp3/2284.mp3
+knall.mp3              1808   https://bigsoundbank.com/UPLOAD/mp3/1808.mp3
+donner.mp3             3115   https://bigsoundbank.com/UPLOAD/mp3/3115.mp3
+glas.mp3               0148   https://bigsoundbank.com/UPLOAD/mp3/0148.mp3
+whoosh.mp3             1796   https://bigsoundbank.com/UPLOAD/mp3/1796.mp3
+schlag.mp3             2460   https://bigsoundbank.com/UPLOAD/mp3/2460.mp3
+ohrfeige.mp3           0597   https://bigsoundbank.com/UPLOAD/mp3/0597.mp3
+klopfen.mp3            0095   https://bigsoundbank.com/UPLOAD/mp3/0095.mp3
+tuer-knarren.mp3       3211   https://bigsoundbank.com/UPLOAD/mp3/3211.mp3
+kamera.mp3             2394   https://bigsoundbank.com/UPLOAD/mp3/2394.mp3
+muenzen.mp3            0193   https://bigsoundbank.com/UPLOAD/mp3/0193.mp3
+korken.mp3             0211   https://bigsoundbank.com/UPLOAD/mp3/0211.mp3
+anstossen.mp3          1335   https://bigsoundbank.com/UPLOAD/mp3/1335.mp3
+uhr.mp3                0007   https://bigsoundbank.com/UPLOAD/mp3/0007.mp3
+herzschlag.mp3         0218   https://bigsoundbank.com/UPLOAD/mp3/0218.mp3
+blubbern.mp3           1074   https://bigsoundbank.com/UPLOAD/mp3/1074.mp3
+klospuelung.mp3        0033   https://bigsoundbank.com/UPLOAD/mp3/0033.mp3
+kuss.mp3               2201   https://bigsoundbank.com/UPLOAD/mp3/2201.mp3
+gaehnen.mp3            1406   https://bigsoundbank.com/UPLOAD/mp3/1406.mp3
+niesen.mp3             0609   https://bigsoundbank.com/UPLOAD/mp3/0609.mp3
+husten.mp3             0488   https://bigsoundbank.com/UPLOAD/mp3/0488.mp3
+schnarchen.mp3         0170   https://bigsoundbank.com/UPLOAD/mp3/0170.mp3
+ruelpser.mp3           1709   https://bigsoundbank.com/UPLOAD/mp3/1709.mp3
+pups.mp3               0241   https://bigsoundbank.com/UPLOAD/mp3/0241.mp3
+hahn.mp3               0283   https://bigsoundbank.com/UPLOAD/mp3/0283.mp3
+hund.mp3               2954   https://bigsoundbank.com/UPLOAD/mp3/2954.mp3
+katze.mp3              1890   https://bigsoundbank.com/UPLOAD/mp3/1890.mp3
+kuh.mp3                0546   https://bigsoundbank.com/UPLOAD/mp3/0546.mp3
+enten.mp3              0276   https://bigsoundbank.com/UPLOAD/mp3/0276.mp3
+schaf.mp3              2343   https://bigsoundbank.com/UPLOAD/mp3/2343.mp3
+ziege.mp3              0279   https://bigsoundbank.com/UPLOAD/mp3/0279.mp3
