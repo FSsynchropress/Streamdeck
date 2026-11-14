@@ -114,8 +114,16 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) oder mit `parallel: true` gleichzeitig |
 | `toggle` | Bei jedem Druck die nächste Aktion aus `actions` (Hotkey-Switch, Multi-Action-Switch) |
 | `random` | Zufällig eine Aktion aus `actions` (nie zweimal dieselbe hintereinander) |
+| `window` | Fenster (`path` = Programm, leer = aktives Fenster): `op` monitor (`monitor` 1…n), nextMonitor, maximize, minimize, restore, move (`x`/`y`/`width`/`height` in % des Arbeitsbereichs) |
+| `plugin` | Eigenes Plugin `plugin` mit `args`: .NET-DLL (Klasse implementiert `IDeckPlugin` aus StreamDeck.Core) oder Skript `.ps1/.cmd/.bat/.py/.exe` im Ordner `%APPDATA%\StreamDeck\plugins` (Umgebungsvariable `STREAMDECK_KEY`) |
+
+Smart Home: `http` hat Vorlagen für Philips Hue, Home Assistant und n8n; An/Aus auf einer Taste über `toggle` mit zwei HTTP-Aktionen.
 
 Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT.log` (14 Tage, Tray-Menü „Protokollordner öffnen“).
+
+### Profile teilen & Administratorrechte
+- Profil-Kontextmenü: „Profil exportieren“ schreibt `<Name>.sdprofile.json` (`{"streamDeckProfile": 1, "profile": {…}}`), „Profil importieren“ fügt es hinzu (Namenskonflikt → „Name 2“). Pfade sind rechnerabhängig.
+- Einstellung „Mit Administratorrechten ausführen“ (`runAsAdmin`): Start fragt per UAC und startet neu (`--wait-for <pid>` wartet auf die alte Instanz, `--no-elevate` überspringt). Autostart läuft dann über die geplante Aufgabe „DIY StreamDeck (Administrator)“ (bei Anmeldung, höchste Privilegien) statt über den Run-Schlüssel. Tray-Menü: „Als Administrator neu starten“.
 
 ### Seiten & Profile
 - Mehrere **Seiten** pro Profil; eine Taste kann als „Zurück"-Taste dienen

@@ -136,6 +136,8 @@ Public Module Theme
             Case ActionTypes.Timer : Return ChrW(&HE823)
             Case ActionTypes.Toggle : Return ChrW(&HE8AB)
             Case ActionTypes.Random : Return ChrW(&HE8B1)
+            Case ActionTypes.Window : Return ChrW(&HE737)
+            Case ActionTypes.Plugin : Return ChrW(&HEA86)
             Case Else : Return ChrW(&HE946)
         End Select
     End Function
@@ -162,6 +164,8 @@ Public Module Theme
             Case ActionTypes.Timer : Return "Timer"
             Case ActionTypes.Toggle : Return "Umschalter"
             Case ActionTypes.Random : Return "Zufall"
+            Case ActionTypes.Window : Return "Fenster"
+            Case ActionTypes.Plugin : Return "Plugin"
             Case Else : Return a.ActionType
         End Select
     End Function

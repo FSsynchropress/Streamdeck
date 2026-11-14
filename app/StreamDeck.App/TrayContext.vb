@@ -15,6 +15,9 @@ Public Module Program
             .OnBeforeUninstallFastCallback(Sub(v) Autostart.SetEnabled(False)) _
             .Run()
 
+        ' Neustart mit Administratorrechten: erst warten, bis die alte Instanz den Mutex freigibt.
+        Elevation.WaitForPreviousInstance(args)
+
         Dim createdNew As Boolean
         Using mutex As New Mutex(True, InstanceName, createdNew)
             If Not createdNew Then
@@ -41,8 +44,15 @@ Public Module Program
             If cfg Is Nothing Then Return
 
             Dim startHidden = args.Any(Function(a) a.Equals("--tray", StringComparison.OrdinalIgnoreCase))
+            ' Option "Mit Administratorrechten ausführen": neu starten (UAC). Abgelehnt -> normal weiter.
+            Dim elevationDeclined = False
+            If cfg.RunAsAdmin AndAlso Not Elevation.IsElevated() AndAlso Not args.Any(Function(a) a.Equals("--no-elevate", StringComparison.OrdinalIgnoreCase)) Then
+                If Elevation.RestartElevated(startHidden) Then Return
+                elevationDeclined = True
+            End If
             Using showEvent As New EventWaitHandle(False, EventResetMode.AutoReset, InstanceName & "-show")
                 Using ctx As New TrayContext(cfg, path, showEvent, startHidden)
+                    If elevationDeclined Then ctx.Log("Start mit Administratorrechten abgelehnt – läuft ohne (Hotkeys erreichen keine Admin-Programme).")
                     Application.Run(ctx)
                 End Using
             End Using
@@ -96,6 +106,7 @@ Public Class TrayContext
     Private _hintShown As Boolean
 
     Public ReadOnly Property Engine As DeckEngine
+    Public ReadOnly Property Plugins As PluginHost
     Public ReadOnly Property Connection As DeckConnection
     Public ReadOnly Property Updates As Updater
     Public ReadOnly Property IconConnected As Icon
@@ -124,6 +135,12 @@ Public Class TrayContext
         _obs = New ObsActionHandler(Function() Engine.Config.Obs)
         _runner.Register(ActionTypes.Obs, _obs)
         HttpActions.Register(_runner)
+        _runner.Register(ActionTypes.Window, New WindowActionHandler())
+        Plugins = New PluginHost(PluginHost.DefaultFolder, AddressOf Log)
+        Plugins.LoadDlls()
+        _runner.Register(ActionTypes.Plugin, Plugins)
+        ActionEditor.PluginSource = Function() Plugins.Available()
+        ActionEditor.PluginFolder = Plugins.Folder
         _runner.Register(ActionTypes.Mic, New MicActionHandler(_runner, AddressOf Log))
         AddHandler _runner.Notify, Sub(t, m) Post(Sub() ShowHint(t, m))
         AddHandler Engine.Navigated, Sub(t, s) Post(Sub() OnNavigated(t, s))
@@ -147,6 +164,8 @@ Public Class TrayContext
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
         menu.Items.Add("Protokollordner öffnen", Nothing, Sub() OpenLogFolder())
+        menu.Items.Add("Plugin-Ordner öffnen", Nothing, Sub() OpenFolder(Plugins.Folder))
+        If Not Elevation.IsElevated() Then menu.Items.Add("Als Administrator neu starten", Nothing, Sub() RestartAsAdmin())
         menu.Items.Add(New ToolStripSeparator())
 
         ' Updates
@@ -299,27 +318,62 @@ Public Class TrayContext
         Engine.ApplyForegroundProcess(name)   ' meldet einen Wechsel über Navigated (Protokoll + Overlay)
     End Sub
 
-    Private Shared Function SafeAutostartEnabled() As Boolean
+    ''' <summary>Autostart an: über den Run-Schlüssel oder (mit Administratorrechten) über die geplante Aufgabe.</summary>
+    Public Shared Function SafeAutostartEnabled() As Boolean
         Try
-            Return Autostart.IsEnabled()
+            Return Autostart.IsEnabled() OrElse Elevation.IsElevatedAutostartEnabled()
         Catch
             Return False
         End Try
     End Function
 
-    Private Sub ToggleAutostart()
+    ''' <summary>
+    ''' Autostart setzen. Mit "Als Administrator ausführen" über eine geplante Aufgabe (startet ohne UAC-Abfrage),
+    ''' sonst über den Run-Schlüssel. Die jeweils andere Variante wird entfernt.
+    ''' </summary>
+    Private Sub SetAutostart(enabled As Boolean, asAdmin As Boolean)
         Try
-            Autostart.SetEnabled(Not Autostart.IsEnabled())
-            Log(If(Autostart.IsEnabled(), "Autostart eingeschaltet", "Autostart ausgeschaltet"))
+            If enabled AndAlso asAdmin Then
+                Elevation.SetElevatedAutostart(True)
+                Autostart.SetEnabled(False)
+            Else
+                Elevation.SetElevatedAutostart(False)
+                Autostart.SetEnabled(enabled)
+            End If
+            Log(If(enabled, $"Autostart eingeschaltet{If(asAdmin, " (mit Administratorrechten)", "")}", "Autostart ausgeschaltet"))
         Catch ex As Exception
             Log($"Autostart: {ex.Message}")
         End Try
     End Sub
 
+    Private Sub ToggleAutostart()
+        SetAutostart(Not SafeAutostartEnabled(), Engine.Config.RunAsAdmin)
+    End Sub
+
+    Private Sub OpenFolder(folder As String)
+        Try
+            IO.Directory.CreateDirectory(folder)
+            Process.Start(New ProcessStartInfo(folder) With {.UseShellExecute = True})?.Dispose()
+        Catch ex As Exception
+            Log($"Ordner öffnen: {ex.Message}")
+        End Try
+    End Sub
+
+    ''' <summary>Startet die App mit Administratorrechten neu (UAC-Abfrage).</summary>
+    Public Sub RestartAsAdmin()
+        If Elevation.RestartElevated(startHidden:=_form Is Nothing OrElse Not _form.Visible) Then
+            ExitApp()
+        Else
+            Log("Neustart mit Administratorrechten abgebrochen.")
+        End If
+    End Sub
+
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
     Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
-                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer)
+                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer, runAsAdmin As Boolean)
+        Dim adminChanged = runAsAdmin <> Engine.Config.RunAsAdmin
         Engine.UpdateConfig(Sub(c)
+                                c.RunAsAdmin = runAsAdmin
                                 c.LongPressMs = longPressMs
                                 c.DoublePressMs = doublePressMs
                                 c.ShowOverlay = showOverlay
@@ -327,11 +381,12 @@ Public Class TrayContext
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}
                             End Sub)
         _obs.Reset()
-        Try
-            If autostartEnabled <> Autostart.IsEnabled() Then Autostart.SetEnabled(autostartEnabled)
-        Catch ex As Exception
-            Log($"Autostart: {ex.Message}")
-        End Try
+        If autostartEnabled <> SafeAutostartEnabled() OrElse (autostartEnabled AndAlso adminChanged) Then SetAutostart(autostartEnabled, runAsAdmin)
+        If adminChanged AndAlso runAsAdmin AndAlso Not Elevation.IsElevated() Then
+            If MessageBox.Show("Jetzt mit Administratorrechten neu starten?", "DIY Stream Deck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                Post(AddressOf RestartAsAdmin)
+            End If
+        End If
     End Sub
 
     ' ------------------------------------------------------------------ Fenster
