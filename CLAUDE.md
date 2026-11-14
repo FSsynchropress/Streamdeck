@@ -111,6 +111,7 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `obs` | OBS-Szene wechseln, Aufnahme/Stream starten/stoppen, Quelle ein-/ausblenden |
 | `page` | Zu einer Seite/einem Ordner wechseln; `target` auch `@back`, `@first`, `@next`, `@prev` (Blättern überspringt Ordner) |
 | `profile` | Profil wechseln; `target` auch `@next`/`@prev` (reihum) |
+| `miniview` | Mini-Ansicht ein-/ausblenden (`op`: `toggle` Standard, `show`, `hide`) |
 | `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) oder mit `parallel: true` gleichzeitig |
 | `toggle` | Bei jedem Druck die nächste Aktion aus `actions` (Hotkey-Switch, Multi-Action-Switch) |
 | `random` | Zufällig eine Aktion aus `actions` (nie zweimal dieselbe hintereinander) |
@@ -132,6 +133,12 @@ Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT
 - **Ordner** = Seite mit `"folder": true`: per Taste geöffnet, verschachtelbar, feste Zurück-Taste (`folderBackKey`, Standard 0), beim Blättern übersprungen; die Startseite ist nie ein Ordner
 - Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (`showOverlay`); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
+
+### Mini-Ansicht
+- Kleines randloses Fenster mit dem 3×5-Raster der aktuellen Seite (Icons, Labels, Live-Hervorhebung, Statuspunkt grün/rot), immer im Vordergrund, nimmt nie den Fokus. Nur Anzeige: Klicks lösen keine Aktionen aus
+- Öffnen: Tray-Menü, Knopf „Mini-Ansicht“ im Editor oder Aktionstyp `miniview`; war sie beim Beenden offen, kommt sie beim Start wieder
+- Am Fenster: ziehen = verschieben (rastet an Bildschirmrändern ein), Rand ziehen = Größe (Seitenverhältnis bleibt), Mausrad = Deckkraft, Rechtsklick = Menü (Deckkraft, Größe, Ecke, durchklickbar, schließen). „Durchklickbar“ lässt Klicks durch und wird über das Tray-Menü wieder gelöst
+- Gespeichert in `miniView` (`visible`, `x`/`y`, `keySize` 24–140 px bei 100 %, `opacity` 20–100, `clickThrough`); Code: `app/StreamDeck.App/MiniDeck.vb`
 
 ### Sounds in Discord (Sprach-Mix)
 - Discord & Co. hören nur ein Eingabegerät. Mit `voiceMix.enabled` nimmt die App das Mikrofon auf (`microphone`, leer = Standard-Kommunikationsgerät), mischt die Sounds dazu und spielt beides auf einem virtuellen Kabel ab (`output`, Standard `CABLE Input` von VB-Audio Virtual Cable); `micVolume` 0–400 % (über 100 = verstärken)

@@ -110,6 +110,10 @@ Public Class MainForm
                                     End Using
                                 End Sub
         _tip.SetToolTip(print, "Belegung als Vorlage für die Keycap-Einleger drucken oder als Bild speichern")
+        Dim mini As New ThemedButton("Mini-Ansicht")
+        AddHandler mini.Click, Sub() _tray.ToggleMiniView()
+        _tip.SetToolTip(mini, "Kleines Tastenraster der aktuellen Seite, immer im Vordergrund – zum Beispiel oben links an den Bildschirmrand legen")
+        actions.Controls.Add(mini)
         actions.Controls.Add(_learnButton)
         actions.Controls.Add(print)
         actions.Controls.Add(rename)

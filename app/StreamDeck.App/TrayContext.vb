@@ -101,6 +101,9 @@ Public Class TrayContext
     Private ReadOnly _fileLog As New FileLog(FileLog.DefaultFolder)
     Private _form As MainForm
     Private _overlay As OverlayForm
+    Private _mini As MiniDeckForm
+    Private ReadOnly _miniItem As ToolStripMenuItem
+    Private ReadOnly _miniLockItem As ToolStripMenuItem
     Private ReadOnly _stateItem As New ToolStripMenuItem("") With {.Enabled = False}
     Private ReadOnly _profileMenu As New ToolStripMenuItem("Profil wechseln")
     Private _lastForeground As String
@@ -145,6 +148,7 @@ Public Class TrayContext
         ActionEditor.PluginSource = Function() Plugins.Available()
         ActionEditor.PluginFolder = Plugins.Folder
         _runner.Register(ActionTypes.Mic, New MicActionHandler(_runner, AddressOf Log))
+        _runner.Register(ActionTypes.MiniView, DelegateActionHandler.FromSync(Sub(a) Post(Sub() ApplyMiniViewAction(a.Op))))
         AddHandler _runner.Notify, Sub(t, m) Post(Sub() ShowHint(t, m))
         AddHandler Engine.Navigated, Sub(t, s) Post(Sub() OnNavigated(t, s))
         AddHandler Engine.StateChanged, Sub() Post(AddressOf UpdateTrayText)
@@ -164,6 +168,11 @@ Public Class TrayContext
         menu.Items.Add(New ToolStripSeparator())
         Dim openItem = menu.Items.Add("Fenster öffnen", Nothing, Sub() ShowMainForm())
         openItem.Font = New Font(openItem.Font, FontStyle.Bold)
+        _miniItem = New ToolStripMenuItem("Mini-Ansicht (immer im Vordergrund)", Nothing, Sub() ToggleMiniView())
+        menu.Items.Add(_miniItem)
+        _miniLockItem = New ToolStripMenuItem("Mini-Ansicht durchklickbar", Nothing, Sub() _mini?.SetClickThrough(Not _mini.ClickThrough)) With {
+            .ToolTipText = "An: Klicks gehen durch das Fenster hindurch. Aus: verschieben, Größe ziehen, Rechtsklick-Menü."}
+        menu.Items.Add(_miniLockItem)
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
         _voiceItem = New ToolStripMenuItem("Sounds in Discord (Sprach-Mix)", Nothing, Sub() ToggleVoiceMix())
@@ -183,6 +192,9 @@ Public Class TrayContext
         AddHandler menu.Opening, Sub()
                                      _autostartItem.Checked = SafeAutostartEnabled()
                                      _voiceItem.Checked = Engine.Config.VoiceMix.Enabled
+                                     _miniItem.Checked = MiniViewVisible
+                                     _miniLockItem.Visible = MiniViewVisible
+                                     _miniLockItem.Checked = MiniViewVisible AndAlso _mini.ClickThrough
                                      RefreshTrayMenu()
                                  End Sub
         AddHandler Updates.UpdateReady, Sub(v) Post(Sub() OnUpdateReady(v))
@@ -207,6 +219,7 @@ Public Class TrayContext
         ApplyVoiceMix(announce:=False)
         Connection.Start()
         Updates.Start()
+        If Engine.Config.MiniView.Visible Then ShowMiniView()
         If Not startHidden Then ShowMainForm()
     End Sub
 
@@ -432,6 +445,52 @@ Public Class TrayContext
         _form.Activate()
     End Sub
 
+    ' ------------------------------------------------------------------ Mini-Ansicht
+
+    Public ReadOnly Property MiniViewVisible As Boolean
+        Get
+            Return _mini IsNot Nothing AndAlso Not _mini.IsDisposed AndAlso _mini.Visible
+        End Get
+    End Property
+
+    ''' <summary>Kleines Tastenraster der aktuellen Seite, immer im Vordergrund (nur Anzeige).</summary>
+    Public Sub ShowMiniView()
+        If _exiting Then Return
+        If _mini Is Nothing OrElse _mini.IsDisposed Then
+            _mini = New MiniDeckForm(Me)
+            AddHandler _mini.SettingsChanged, AddressOf SaveConfig
+            AddHandler _mini.CloseRequested, AddressOf HideMiniView
+        End If
+        _mini.Show()
+        RememberMiniView(True)
+    End Sub
+
+    Public Sub HideMiniView()
+        If _mini IsNot Nothing AndAlso Not _mini.IsDisposed Then _mini.Close()   ' Dispose speichert ausstehende Änderungen
+        _mini = Nothing
+        RememberMiniView(False)
+    End Sub
+
+    Public Sub ToggleMiniView()
+        If MiniViewVisible Then HideMiniView() Else ShowMiniView()
+    End Sub
+
+    ''' <summary>Offen/geschlossen merken, damit die Mini-Ansicht beim nächsten Start wieder da ist.</summary>
+    Private Sub RememberMiniView(visible As Boolean)
+        If Engine.Config.MiniView.Visible = visible Then Return
+        Engine.Config.MiniView.Visible = visible   ' nur der UI-Thread ändert MiniView, siehe MiniDeckForm.Settings
+        SaveConfig()
+    End Sub
+
+    ''' <summary>Aktionstyp miniview: op = toggle (Standard), show, hide.</summary>
+    Private Sub ApplyMiniViewAction(op As String)
+        Select Case If(op, "toggle").Trim().ToLowerInvariant()
+            Case "show" : ShowMiniView()
+            Case "hide" : HideMiniView()
+            Case Else : ToggleMiniView()
+        End Select
+    End Sub
+
     ''' <summary>Hauptfenster wurde geschlossen (versteckt) – einmalig darauf hinweisen, dass die App weiterläuft.</summary>
     Public Sub OnMainFormHidden()
         If _hintShown Then Return
@@ -486,6 +545,7 @@ Public Class TrayContext
         _waitHandle.Unregister(Nothing)
         _notify.Visible = False
         If _form IsNot Nothing AndAlso Not _form.IsDisposed Then _form.Close()
+        _mini?.Dispose()   ' bleibt in der Konfiguration "offen" und kommt beim nächsten Start wieder
         Connection.Stop()
         Engine.Dispose()
         _sound.Dispose()
