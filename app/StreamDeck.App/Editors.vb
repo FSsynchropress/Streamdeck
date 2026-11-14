@@ -1026,7 +1026,14 @@ Public Class SettingsForm
     Private ReadOnly _obsUrl As New TextBox
     Private ReadOnly _obsPassword As New TextBox With {.UseSystemPasswordChar = True}
     Private ReadOnly _autostart As New CheckBox With {.Text = "Mit Windows starten", .AutoSize = True}
-    Private ReadOnly _overlay As New CheckBox With {.Text = "Einblendung auf dem Bildschirm bei Profil-/Seiten-/Ordnerwechsel und Meldungen", .AutoSize = True}
+    Private ReadOnly _navigation As New CheckBox With {.Text = "Seiten-, Ordner- und Profilwechsel anzeigen", .AutoSize = True}
+    Private ReadOnly _overlay As New CheckBox With {.Text = "Meldungen als Einblendung auf dem Bildschirm (aus = Windows-Benachrichtigung)", .AutoSize = True}
+
+    Public ReadOnly Property ShowNavigation As Boolean
+        Get
+            Return _navigation.Checked
+        End Get
+    End Property
     Private ReadOnly _admin As New CheckBox With {.Text = "Mit Administratorrechten ausführen", .AutoSize = True}
 
     Public ReadOnly Property RunAsAdmin As Boolean
@@ -1118,6 +1125,7 @@ Public Class SettingsForm
         _obsPassword.Text = config.Obs?.Password
         _autostart.Checked = autostartOn
         _overlay.Checked = config.ShowOverlay
+        _navigation.Checked = config.ShowNavigation
         _admin.Checked = config.RunAsAdmin
         _doublePress.Value = Math.Max(_doublePress.Minimum, Math.Min(_doublePress.Maximum, config.DoublePressMs))
         _folderBack.Value = Math.Max(0, Math.Min(ConfigStore.KeyCount - 1, config.FolderBackKey))
@@ -1194,7 +1202,7 @@ Public Class SettingsForm
         Dim body As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(24, 6, 24, 12)}
         Theme.StackTop(body,
                        Section("Gerät"), device,
-                       Section("Allgemein"), _autostart, autostartHint, _overlay, _admin, adminHint, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Section("Allgemein"), _autostart, autostartHint, _navigation, _overlay, _admin, adminHint, Theme.FieldLabel("Langer Druck ab"), longRow,
                        Theme.FieldLabel("Doppeldruck innerhalb"), doubleRow,
                        Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
                        Section("Sounds in Discord (Sprach-Mix)"), _voiceEnabled, voiceHint, Theme.FieldLabel("Mikrofon"), _voiceMic,

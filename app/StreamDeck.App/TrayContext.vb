@@ -92,6 +92,7 @@ Public Class TrayContext
     Private ReadOnly _sound As SoundActionHandler
     Private ReadOnly _voice As VoiceMixer
     Private ReadOnly _voiceItem As ToolStripMenuItem
+    Private ReadOnly _navItem As ToolStripMenuItem
     Private ReadOnly _obs As ObsActionHandler
     Private ReadOnly _foregroundTimer As System.Windows.Forms.Timer
     Private ReadOnly _waitHandle As RegisteredWaitHandle
@@ -177,6 +178,13 @@ Public Class TrayContext
         menu.Items.Add(_autostartItem)
         _voiceItem = New ToolStripMenuItem("Sounds in Discord (Sprach-Mix)", Nothing, Sub() ToggleVoiceMix())
         menu.Items.Add(_voiceItem)
+        _navItem = New ToolStripMenuItem("Seitenwechsel anzeigen", Nothing,
+                                         Sub()
+                                             Dim show = Not Engine.Config.ShowNavigation
+                                             Engine.UpdateConfig(Sub(c) c.ShowNavigation = show)
+                                         End Sub) With {
+            .ToolTipText = "Einblendung beim Wechsel von Seite, Ordner oder Profil"}
+        menu.Items.Add(_navItem)
         menu.Items.Add("Protokollordner öffnen", Nothing, Sub() OpenLogFolder())
         menu.Items.Add("Plugin-Ordner öffnen", Nothing, Sub() OpenFolder(Plugins.Folder))
         If Not Elevation.IsElevated() Then menu.Items.Add("Als Administrator neu starten", Nothing, Sub() RestartAsAdmin())
@@ -192,6 +200,7 @@ Public Class TrayContext
         AddHandler menu.Opening, Sub()
                                      _autostartItem.Checked = SafeAutostartEnabled()
                                      _voiceItem.Checked = Engine.Config.VoiceMix.Enabled
+                                     _navItem.Checked = Engine.Config.ShowNavigation
                                      _miniItem.Checked = MiniViewVisible
                                      _miniLockItem.Visible = MiniViewVisible
                                      _miniLockItem.Checked = MiniViewVisible AndAlso _mini.ClickThrough
@@ -275,6 +284,7 @@ Public Class TrayContext
 
     Private Sub OnNavigated(title As String, subtitle As String)
         Log($"{title} ({subtitle})")
+        If Not Engine.Config.ShowNavigation Then Return   ' abgeschaltet: nur ins Protokoll
         Dim glyph = If(title.StartsWith("Ordner", StringComparison.Ordinal), ChrW(&HE8B7),
                        If(title.StartsWith("Profil", StringComparison.Ordinal), ChrW(&HE77B), ChrW(&HE7C3)))
         ShowHint(title, subtitle, glyph)
@@ -412,7 +422,7 @@ Public Class TrayContext
 
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
     Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
-                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer, runAsAdmin As Boolean,
+                             folderBackKey As Integer, showOverlay As Boolean, showNavigation As Boolean, doublePressMs As Integer, runAsAdmin As Boolean,
                              voiceMix As VoiceMixSettings)
         Dim adminChanged = runAsAdmin <> Engine.Config.RunAsAdmin
         Dim wasEnabled = Engine.Config.VoiceMix.Enabled
@@ -421,6 +431,7 @@ Public Class TrayContext
                                 c.LongPressMs = longPressMs
                                 c.DoublePressMs = doublePressMs
                                 c.ShowOverlay = showOverlay
+                                c.ShowNavigation = showNavigation
                                 ConfigEdit.SetFolderBackKey(c, folderBackKey)
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}
                                 c.VoiceMix = voiceMix

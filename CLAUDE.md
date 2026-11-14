@@ -131,7 +131,7 @@ Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT
 ### Seiten & Profile
 - Mehrere **Seiten** pro Profil; eine Taste kann als „Zurück"-Taste dienen
 - **Ordner** = Seite mit `"folder": true`: per Taste geöffnet, verschachtelbar, feste Zurück-Taste (`folderBackKey`, Standard 0), beim Blättern übersprungen; die Startseite ist nie ein Ordner
-- Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (`showOverlay`); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
+- Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (abschaltbar mit `showNavigation: false` in den Einstellungen oder im Tray-Menü „Seitenwechsel anzeigen“, dann nur Protokoll; `showOverlay: false` zeigt Meldungen als Windows-Benachrichtigung statt als Einblendung); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
 
 ### Mini-Ansicht
