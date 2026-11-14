@@ -76,11 +76,15 @@ Public Class MainForm
         Dim content As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True}
         Theme.StackTop(content, _brand, Spacer(10), profileHead, _profileList, Spacer(18), pageHead, _pageList)
 
-        Dim foot As New BorderPanel With {.Dock = DockStyle.Bottom, .Borders = AnchorStyles.Top, .Height = 142, .Padding = New Padding(0, 12, 0, 0)}
+        Dim foot As New BorderPanel With {.Dock = DockStyle.Bottom, .Borders = AnchorStyles.Top, .Height = 222, .Padding = New Padding(0, 12, 0, 0)}
         Dim exportB = SideButton("Konfiguration exportieren", Theme.GlyphUpload, AddressOf ExportConfig)
         Dim importB = SideButton("Konfiguration importieren", Theme.GlyphDownload, AddressOf ImportConfig)
         Dim settingsB = SideButton("Einstellungen", Theme.GlyphSettings, AddressOf ShowSettings)
-        Theme.StackTop(foot, exportB, importB, settingsB)
+        Dim bugB = SideButton("Fehler melden", Theme.GlyphBug, Sub() OpenIssue(bug:=True))
+        Dim ideaB = SideButton("Funktion vorschlagen", Theme.GlyphIdea, Sub() OpenIssue(bug:=False))
+        _tip.SetToolTip(bugB, "Öffnet ein neues GitHub-Issue (Bug Report) im Browser")
+        _tip.SetToolTip(ideaB, "Öffnet ein neues GitHub-Issue für einen Funktionswunsch im Browser")
+        Theme.StackTop(foot, bugB, ideaB, exportB, importB, settingsB)
 
         sidebar.Controls.Add(content)
         sidebar.Controls.Add(foot)

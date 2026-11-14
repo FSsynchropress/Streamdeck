@@ -100,6 +100,8 @@ Public Module Theme
     Public ReadOnly GlyphUp As String = ChrW(&HE70E)
     Public ReadOnly GlyphDown As String = ChrW(&HE70D)
     Public ReadOnly GlyphClose As String = ChrW(&HE711)
+    Public ReadOnly GlyphBug As String = ChrW(&HEBE8)
+    Public ReadOnly GlyphIdea As String = ChrW(&HEA80)
 
     ''' <summary>Symbol für eine Aktion.</summary>
     Public Function GlyphFor(a As ActionConfig) As String
