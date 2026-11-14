@@ -118,7 +118,7 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `window` | Fenster (`path` = Programm, leer = aktives Fenster): `op` monitor (`monitor` 1…n), nextMonitor, maximize, minimize, restore, move (`x`/`y`/`width`/`height` in % des Arbeitsbereichs) |
 | `plugin` | Eigenes Plugin `plugin` mit `args`: .NET-DLL (Klasse implementiert `IDeckPlugin` aus StreamDeck.Core) oder Skript `.ps1/.cmd/.bat/.py/.exe` im Ordner `%APPDATA%\StreamDeck\plugins` (Umgebungsvariable `STREAMDECK_KEY`) |
 
-Mitgelieferte Sounds: `app/StreamDeck.App/Sounds` (nur CC0 – BigSoundBank oder selbst synthetisiert mit `tools/SoundSynth`, Nachweis in `QUELLEN.txt`), Name/Kategorie/Symbol je Datei in `Sounds/katalog.json`. Im Editor öffnet „Galerie“ die Sound-Galerie (`SoundPicker.vb`: Kategorien, Suche, Vorhören). Keine urheberrechtlich geschützten Meme-Clips ins Repo.
+Mitgelieferte Sounds: `app/StreamDeck.App/Sounds` (nur CC0 – BigSoundBank oder selbst synthetisiert mit `tools/SoundSynth`, Nachweis in `QUELLEN.txt`), Name/Kategorie/Symbol je Datei in `Sounds/katalog.json`. Im Editor öffnet „Galerie“ die Sound-Galerie (`SoundPicker.vb`: Kategorien, Suche, Vorhören). „Aufnehmen“ spricht einen eigenen Sound ein (`Recorder.vb`, max. 30 s, Stille abschneiden, Lautstärke angleichen) und speichert ihn als WAV in `%APPDATA%\StreamDeck\sounds` (in der Konfiguration als `%APPDATA%\…`). Keine urheberrechtlich geschützten Meme-Clips ins Repo.
 
 Smart Home: `http` hat Vorlagen für Philips Hue, Home Assistant und n8n; An/Aus auf einer Taste über `toggle` mit zwei HTTP-Aktionen.
 
