@@ -50,7 +50,8 @@ Public Module ConfigStore
         If cfg.Profiles.Count = 0 Then cfg.Profiles.Add(New ProfileConfig With {.Name = "Standard"})
         If cfg.Obs Is Nothing Then cfg.Obs = New ObsSettings
         If cfg.VoiceMix Is Nothing Then cfg.VoiceMix = New VoiceMixSettings
-        cfg.VoiceMix.MicVolume = Math.Max(0, Math.Min(100, cfg.VoiceMix.MicVolume))
+        cfg.VoiceMix.MicVolume = Math.Max(0, Math.Min(VoiceMixSettings.MaxMicVolume, cfg.VoiceMix.MicVolume))
+        cfg.VoiceMix.NoiseGateDb = Math.Max(-80, Math.Min(-10, cfg.VoiceMix.NoiseGateDb))
         If cfg.LongPressMs < 100 OrElse cfg.LongPressMs > 10000 Then cfg.LongPressMs = 500
         If cfg.FolderBackKey < 0 OrElse cfg.FolderBackKey >= KeyCount Then cfg.FolderBackKey = 0
 

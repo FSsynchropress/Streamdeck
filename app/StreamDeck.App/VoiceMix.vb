@@ -82,8 +82,10 @@ Public Class VoiceMixer
             Dim format = WaveFormat.CreateIeeeFloatWaveFormat(render.AudioClient.MixFormat.SampleRate, 2)
             Dim mixer As New MixingSampleProvider(format) With {.ReadFully = True}
 
-            ' Mikrofon
+            ' Mikrofon – im Kommunikationsmodus wie Discord/Teams, damit Windows bzw. der Treiber
+            ' seine Sprachaufbereitung (Pegel, Rauschfilter, Beamforming) anwendet.
             Dim capture As New WasapiCapture(mic, True, 20)
+            Dim communications = TrySetCommunicationsCategory(capture)
             Dim buffer As New BufferedWaveProvider(capture.WaveFormat) With {
                 .DiscardOnBufferOverflow = True, .BufferDuration = TimeSpan.FromMilliseconds(500), .ReadFully = True}
             AddHandler capture.DataAvailable,
@@ -95,11 +97,14 @@ Public Class VoiceMixer
                 Sub(o, e)
                     If e.Exception IsNot Nothing Then _log($"Sprach-Mix: Mikrofon-Fehler: {e.Exception.Message}")
                 End Sub
-            mixer.AddMixerInput(New VolumeSampleProvider(Adapt(buffer.ToSampleProvider(), format)) With {.Volume = s.MicVolume / 100.0F})
+            Dim micChain As ISampleProvider = buffer.ToSampleProvider()
+            If s.NoiseGate Then micChain = New NoiseGateSampleProvider(micChain, s.NoiseGateDb)
+            micChain = New VolumeSampleProvider(micChain) With {.Volume = s.MicVolume / 100.0F}
+            mixer.AddMixerInput(Adapt(micChain, format))
 
-            ' Ausgabe aufs Kabel
+            ' Ausgabe aufs Kabel (weich begrenzt, damit Verstärkung + Sounds nicht übersteuern)
             Dim output As New WasapiOut(render, AudioClientShareMode.Shared, True, 40)
-            output.Init(mixer)
+            output.Init(New SoftClipSampleProvider(mixer))
             AddHandler output.PlaybackStopped,
                 Sub(o, e)
                     If e.Exception IsNot Nothing Then _log($"Sprach-Mix: Ausgabe-Fehler: {e.Exception.Message}")
@@ -112,9 +117,40 @@ Public Class VoiceMixer
             End SyncLock
             output.Play()
             capture.StartRecording()
-            _log($"Sprach-Mix aktiv: {mic.FriendlyName} + Sounds → {render.FriendlyName}")
+            _log($"Sprach-Mix aktiv: {mic.FriendlyName} + Sounds → {render.FriendlyName}" &
+                 $" (Mikrofon {s.MicVolume} %, Rauschsperre {If(s.NoiseGate, $"{s.NoiseGateDb} dB", "aus")}" &
+                 $"{If(communications, ", Kommunikationsmodus", "")})")
         End Using
     End Sub
+
+    ''' <summary>
+    ''' Meldet den Aufnahmestrom als Kommunikation an (IAudioClient2.SetClientProperties). NAudio bietet das für
+    ''' WasapiCapture nicht direkt an, daher über die internen Felder; muss vor StartRecording passieren.
+    ''' </summary>
+    Private Function TrySetCommunicationsCategory(capture As WasapiCapture) As Boolean
+        Const flags = Reflection.BindingFlags.NonPublic Or Reflection.BindingFlags.Instance
+        Try
+            Dim client = GetType(WasapiCapture).GetField("audioClient", flags)?.GetValue(capture)
+            Dim raw = GetType(AudioClient).GetField("audioClientInterface", flags)?.GetValue(client)
+            Dim client2 = TryCast(raw, NAudio.CoreAudioApi.Interfaces.IAudioClient2)
+            If client2 Is Nothing Then Return False
+            Dim props As New AudioClientProperties With {
+                .cbSize = CUInt(Runtime.InteropServices.Marshal.SizeOf(GetType(AudioClientProperties))),
+                .bIsOffload = 0,
+                .eCategory = AudioStreamCategory.Communications}
+            Dim ptr = Runtime.InteropServices.Marshal.AllocHGlobal(CInt(props.cbSize))
+            Try
+                Runtime.InteropServices.Marshal.StructureToPtr(props, ptr, False)
+                client2.SetClientProperties(ptr)
+            Finally
+                Runtime.InteropServices.Marshal.FreeHGlobal(ptr)
+            End Try
+            Return True
+        Catch ex As Exception
+            _log($"Sprach-Mix: Kommunikationsmodus nicht verfügbar ({ex.Message})")
+            Return False
+        End Try
+    End Function
 
     Private Shared Function FindDevice(en As MMDeviceEnumerator, flow As DataFlow, name As String) As MMDevice
         If String.IsNullOrWhiteSpace(name) Then Return Nothing
@@ -177,6 +213,54 @@ Public Class VoiceMixer
     Public Sub Dispose() Implements IDisposable.Dispose
         StopMix()
     End Sub
+End Class
+
+''' <summary>Rauschsperre (StreamDeck.Core.NoiseGate) als NAudio-Baustein.</summary>
+Public Class NoiseGateSampleProvider
+    Implements ISampleProvider
+
+    Private ReadOnly _source As ISampleProvider
+    Private ReadOnly _gate As NoiseGate
+
+    Public Sub New(source As ISampleProvider, thresholdDb As Double)
+        _source = source
+        _gate = New NoiseGate(source.WaveFormat.SampleRate, source.WaveFormat.Channels, thresholdDb)
+    End Sub
+
+    Public ReadOnly Property WaveFormat As WaveFormat Implements ISampleProvider.WaveFormat
+        Get
+            Return _source.WaveFormat
+        End Get
+    End Property
+
+    Public Function Read(buffer As Single(), offset As Integer, count As Integer) As Integer Implements ISampleProvider.Read
+        Dim n = _source.Read(buffer, offset, count)
+        _gate.Process(buffer, offset, n)
+        Return n
+    End Function
+End Class
+
+''' <summary>Weiche Begrenzung (StreamDeck.Core.SoftClip) als NAudio-Baustein.</summary>
+Public Class SoftClipSampleProvider
+    Implements ISampleProvider
+
+    Private ReadOnly _source As ISampleProvider
+
+    Public Sub New(source As ISampleProvider)
+        _source = source
+    End Sub
+
+    Public ReadOnly Property WaveFormat As WaveFormat Implements ISampleProvider.WaveFormat
+        Get
+            Return _source.WaveFormat
+        End Get
+    End Property
+
+    Public Function Read(buffer As Single(), offset As Integer, count As Integer) As Integer Implements ISampleProvider.Read
+        Dim n = _source.Read(buffer, offset, count)
+        SoftClip.Process(buffer, offset, n)
+        Return n
+    End Function
 End Class
 
 ''' <summary>Ein Sound im Sprach-Mix. Endet, wenn die Quelle fertig ist oder Stop aufgerufen wurde.</summary>
