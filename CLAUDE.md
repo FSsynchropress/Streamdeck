@@ -132,8 +132,9 @@ Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
 
 ### Sounds in Discord (Sprach-Mix)
-- Discord & Co. hören nur ein Eingabegerät. Mit `voiceMix.enabled` nimmt die App das Mikrofon auf (`microphone`, leer = Standard-Kommunikationsgerät), mischt die Sounds dazu und spielt beides auf einem virtuellen Kabel ab (`output`, Standard `CABLE Input` von VB-Audio Virtual Cable); `micVolume` 0–100
-- In Discord als Eingabegerät `CABLE Output` wählen, Rauschunterdrückung (Krisp) aus
+- Discord & Co. hören nur ein Eingabegerät. Mit `voiceMix.enabled` nimmt die App das Mikrofon auf (`microphone`, leer = Standard-Kommunikationsgerät), mischt die Sounds dazu und spielt beides auf einem virtuellen Kabel ab (`output`, Standard `CABLE Input` von VB-Audio Virtual Cable); `micVolume` 0–400 % (über 100 = verstärken)
+- Mikrofon wird im Kommunikationsmodus aufgenommen (wie Discord/Teams, Windows-Sprachaufbereitung); Rauschsperre nur fürs Mikrofon (`noiseGate`, Schwelle `noiseGateDb` -80…-10); der Mix wird weich begrenzt
+- In Discord als Eingabegerät `CABLE Output` wählen, Rauschunterdrückung (Krisp) und automatische Verstärkung aus (sonst filtert Discord auch die Sounds)
 - Umschaltbar in den Einstellungen und im Tray-Menü; einzelne Sounds mit `voice: false` ausnehmen; der Timer-Wecker geht nie in den Mix
 - Code: `app/StreamDeck.App/VoiceMix.vb`
 
