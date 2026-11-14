@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Erzeugt die selbst synthetisierten Sounds (CC0) für app/StreamDeck.App/Sounds.
+       Aufruf (aus dem Repo-Stamm): dotnet run, Projekt tools/SoundSynth, Argument app/StreamDeck.App/Sounds -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+</Project>

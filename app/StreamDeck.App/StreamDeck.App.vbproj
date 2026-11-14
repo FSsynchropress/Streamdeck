@@ -26,7 +26,7 @@
   </ItemGroup>
   <ItemGroup>
     <!-- Mitgelieferte CC0-Sounds (Quelle/Lizenz: Sounds\QUELLEN.txt) -->
-    <None Include="Sounds\*.mp3;Sounds\QUELLEN.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Sounds\*.mp3;Sounds\QUELLEN.txt;Sounds\katalog.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\StreamDeck.Core\StreamDeck.Core.vbproj" />

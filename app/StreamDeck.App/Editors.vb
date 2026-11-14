@@ -456,10 +456,8 @@ Public Class ActionEditor
                 AddComboRow("media", "Taste:", MediaChoices, If(a.MediaKey, "playpause"), editable:=False)
             Case ActionTypes.Sound
                 Dim tb = AddTextRow("file", "Datei:", a.File)
-                Dim builtIn As New Button With {.Text = "Mitgeliefert ▾", .AutoSize = True}
-                AddHandler builtIn.Click, Sub() ShowBuiltInSounds(builtIn, tb)
                 Dim soundButtons As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
-                soundButtons.Controls.Add(builtIn)
+                soundButtons.Controls.Add(GalleryButton(tb))
                 soundButtons.Controls.Add(BrowseButton(tb, "Sounddateien (*.wav;*.mp3)|*.wav;*.mp3|Alle Dateien|*.*"))
                 SetExtra(soundButtons)
                 Dim vol As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, a.Volume.GetValueOrDefault(100))), .Width = 70}
@@ -482,7 +480,7 @@ Public Class ActionEditor
                                                 .Checked = a.Voice.GetValueOrDefault(True)}
                 AddRow("", voice)
                 _inputs("voice") = voice
-                AddHint("'Mitgeliefert' bietet 50 freie Sounds (CC0, BigSoundBank.com). Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
+                AddHint("'Galerie' bietet über 100 freie Sounds (CC0) nach Kategorien – Hype, Fail, Comedy, Spannung, Game … – zum Vorhören. Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
             Case ActionTypes.Launch
                 Dim tb = AddTextRow("path", "Pfad:", a.Path)
                 Dim pick As New Button With {.Text = "Datei …", .AutoSize = True}
@@ -560,10 +558,8 @@ Public Class ActionEditor
                 _inputs("seconds") = seconds
                 Dim tb = AddTextRow("file", "Ton am Ende:", a.File)
                 tb.PlaceholderText = ActionRunner.DefaultTimerSound
-                Dim builtIn As New Button With {.Text = "Mitgeliefert ▾", .AutoSize = True}
-                AddHandler builtIn.Click, Sub() ShowBuiltInSounds(builtIn, tb)
                 Dim soundButtons As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
-                soundButtons.Controls.Add(builtIn)
+                soundButtons.Controls.Add(GalleryButton(tb))
                 soundButtons.Controls.Add(BrowseButton(tb, "Sounddateien (*.wav;*.mp3)|*.wav;*.mp3|Alle Dateien|*.*"))
                 SetExtra(soundButtons)
                 Dim vol As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, a.Volume.GetValueOrDefault(100))), .Width = 70}
@@ -818,21 +814,15 @@ Public Class ActionEditor
         m.Show(anchor, New Point(0, anchor.Height))
     End Sub
 
-    ''' <summary>Menü mit den mitgelieferten Sounds; Auswahl trägt den relativen Pfad ein und spielt kurz vor.</summary>
-    Private Sub ShowBuiltInSounds(anchor As Control, target As TextBox)
-        Dim m As New ContextMenuStrip()
-        For Each rel In SoundActionHandler.GetBuiltInSounds()
-            Dim path = rel
-            m.Items.Add(IO.Path.GetFileNameWithoutExtension(path), Nothing,
-                        Sub()
-                            target.Text = path
-                            _runner.Fire(New ActionConfig With {.ActionType = ActionTypes.Sound, .File = path, .Volume = 80})
-                        End Sub)
-        Next
-        If m.Items.Count = 0 Then m.Items.Add("(keine Sounds im Programmordner gefunden)").Enabled = False
-        AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
-        m.Show(anchor, New Point(0, anchor.Height))
-    End Sub
+    ''' <summary>Knopf „Galerie“: öffnet die Sound-Galerie und trägt den gewählten relativen Pfad ein.</summary>
+    Private Function GalleryButton(target As TextBox) As Control
+        Dim b As New ThemedButton("Galerie", ButtonKind.Secondary, ChrW(&HE8D6)) With {.BaseHeight = 30}
+        AddHandler b.Click, Sub()
+                                Dim picked = SoundPickerForm.Pick(FindForm(), target.Text.Trim())
+                                If picked IsNot Nothing Then target.Text = picked
+                            End Sub
+        Return b
+    End Function
 
     Private Function BrowseButton(target As TextBox, filter As String) As Control
         Dim b As New ThemedButton("Durchsuchen", ButtonKind.IconOnly, Theme.GlyphFolder) With {.BaseHeight = 30}
