@@ -465,6 +465,7 @@ Public Class ActionEditor
                 Dim tb = AddTextRow("file", "Datei:", a.File)
                 Dim soundButtons As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
                 soundButtons.Controls.Add(GalleryButton(tb))
+                soundButtons.Controls.Add(RecordButton(tb))
                 soundButtons.Controls.Add(BrowseButton(tb, "Sounddateien (*.wav;*.mp3)|*.wav;*.mp3|Alle Dateien|*.*"))
                 SetExtra(soundButtons)
                 Dim vol As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, a.Volume.GetValueOrDefault(100))), .Width = 70}
@@ -487,7 +488,7 @@ Public Class ActionEditor
                                                 .Checked = a.Voice.GetValueOrDefault(True)}
                 AddRow("", voice)
                 _inputs("voice") = voice
-                AddHint("'Galerie' bietet über 100 freie Sounds (CC0) nach Kategorien – Hype, Fail, Comedy, Spannung, Game … – zum Vorhören. Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
+                AddHint("'Galerie' bietet über 100 freie Sounds (CC0) nach Kategorien – Hype, Fail, Comedy, Spannung, Game … – zum Vorhören. 'Aufnehmen' spricht einen eigenen Sound übers Mikrofon ein. Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
             Case ActionTypes.Launch
                 Dim tb = AddTextRow("path", "Pfad:", a.Path)
                 Dim pick As New Button With {.Text = "Datei …", .AutoSize = True}
@@ -571,6 +572,7 @@ Public Class ActionEditor
                 tb.PlaceholderText = ActionRunner.DefaultTimerSound
                 Dim soundButtons As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
                 soundButtons.Controls.Add(GalleryButton(tb))
+                soundButtons.Controls.Add(RecordButton(tb))
                 soundButtons.Controls.Add(BrowseButton(tb, "Sounddateien (*.wav;*.mp3)|*.wav;*.mp3|Alle Dateien|*.*"))
                 SetExtra(soundButtons)
                 Dim vol As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, a.Volume.GetValueOrDefault(100))), .Width = 70}
@@ -831,6 +833,16 @@ Public Class ActionEditor
         AddHandler b.Click, Sub()
                                 Dim picked = SoundPickerForm.Pick(FindForm(), target.Text.Trim())
                                 If picked IsNot Nothing Then target.Text = picked
+                            End Sub
+        Return b
+    End Function
+
+    ''' <summary>Knopf „Aufnehmen“: eigenen Sound einsprechen und den gespeicherten Pfad eintragen.</summary>
+    Private Function RecordButton(target As TextBox) As Control
+        Dim b As New ThemedButton("Aufnehmen", ButtonKind.Secondary, ChrW(&HE720)) With {.BaseHeight = 30}
+        AddHandler b.Click, Sub()
+                                Dim recorded = RecorderForm.Record(FindForm())
+                                If recorded IsNot Nothing Then target.Text = recorded
                             End Sub
         Return b
     End Function
