@@ -368,6 +368,49 @@ Public Class ConfigTests
         Next
         Assert.Equal("(keine Aktion)", ActionTypes.Describe(Nothing))
     End Sub
+
+    <Fact>
+    Public Sub MiniViewSurvivesSaveAndLoad()
+        Dim path = IO.Path.Combine(IO.Path.GetTempPath(), $"sd-mini-{Guid.NewGuid():N}.json")
+        Try
+            Dim cfg = ConfigStore.CreateDefault()
+            cfg.MiniView = New MiniViewSettings With {.Visible = True, .X = -1900, .Y = 12, .KeySize = 64, .Opacity = 55, .ClickThrough = True}
+            ConfigStore.Save(cfg, path)
+            Assert.Contains("""miniView""", IO.File.ReadAllText(path))
+            Dim back = ConfigStore.Load(path).MiniView
+            Assert.True(back.Visible)
+            Assert.Equal(-1900, back.X)
+            Assert.Equal(12, back.Y)
+            Assert.Equal(64, back.KeySize)
+            Assert.Equal(55, back.Opacity)
+            Assert.True(back.ClickThrough)
+        Finally
+            IO.File.Delete(path)
+        End Try
+    End Sub
+
+    <Fact>
+    Public Sub MiniViewIsNormalized()
+        Dim cfg As New DeckConfig With {.MiniView = Nothing}
+        ConfigStore.Normalize(cfg)
+        Assert.NotNull(cfg.MiniView)
+        Assert.False(cfg.MiniView.Visible)
+        cfg.MiniView = New MiniViewSettings With {.KeySize = 5, .Opacity = 0}
+        ConfigStore.Normalize(cfg)
+        Assert.Equal(MiniViewSettings.MinKeySize, cfg.MiniView.KeySize)
+        Assert.Equal(MiniViewSettings.MinOpacity, cfg.MiniView.Opacity)
+        cfg.MiniView = New MiniViewSettings With {.KeySize = 999, .Opacity = 300}
+        ConfigStore.Normalize(cfg)
+        Assert.Equal(MiniViewSettings.MaxKeySize, cfg.MiniView.KeySize)
+        Assert.Equal(100, cfg.MiniView.Opacity)
+    End Sub
+
+    <Fact>
+    Public Sub DescribesMiniView()
+        Assert.Equal("Mini-Ansicht ein/aus", ActionTypes.Describe(New ActionConfig With {.ActionType = "miniview"}))
+        Assert.Equal("Mini-Ansicht einblenden", ActionTypes.Describe(New ActionConfig With {.ActionType = "miniview", .Op = "show"}))
+        Assert.Equal("Mini-Ansicht ausblenden", ActionTypes.Describe(New ActionConfig With {.ActionType = "miniview", .Op = "hide"}))
+    End Sub
 End Class
 
 Public Class DeckStateTests

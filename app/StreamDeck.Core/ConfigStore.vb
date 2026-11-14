@@ -53,6 +53,9 @@ Public Module ConfigStore
         cfg.VoiceMix.MicVolume = Math.Max(0, Math.Min(VoiceMixSettings.MaxMicVolume, cfg.VoiceMix.MicVolume))
         cfg.VoiceMix.NoiseGateDb = Math.Max(-80, Math.Min(-10, cfg.VoiceMix.NoiseGateDb))
         cfg.VoiceMix.SoundVolume = Math.Max(0, Math.Min(100, cfg.VoiceMix.SoundVolume))
+        If cfg.MiniView Is Nothing Then cfg.MiniView = New MiniViewSettings
+        cfg.MiniView.KeySize = Math.Max(MiniViewSettings.MinKeySize, Math.Min(MiniViewSettings.MaxKeySize, cfg.MiniView.KeySize))
+        cfg.MiniView.Opacity = Math.Max(MiniViewSettings.MinOpacity, Math.Min(100, cfg.MiniView.Opacity))
         If cfg.LongPressMs < 100 OrElse cfg.LongPressMs > 10000 Then cfg.LongPressMs = 500
         If cfg.DoublePressMs < 150 OrElse cfg.DoublePressMs > 1000 Then cfg.DoublePressMs = 300
         If cfg.FolderBackKey < 0 OrElse cfg.FolderBackKey >= KeyCount Then cfg.FolderBackKey = 0

@@ -65,12 +65,16 @@ Public Class ActionEditor
         New Choice(ActionTypes.Obs, "OBS steuern"),
         New Choice(ActionTypes.Page, "Seite wechseln"),
         New Choice(ActionTypes.Profile, "Profil wechseln"),
+        New Choice(ActionTypes.MiniView, "Mini-Ansicht ein-/ausblenden"),
         New Choice(ActionTypes.Multi, "Mehrere Aktionen (nacheinander oder gleichzeitig)"),
         New Choice(ActionTypes.Toggle, "Umschalter (bei jedem Druck die nächste Aktion)"),
         New Choice(ActionTypes.Random, "Zufällige Aktion aus einer Liste"),
         New Choice(ActionTypes.Window, "Fenster verschieben / auf Monitor legen"),
         New Choice(ActionTypes.Plugin, "Plugin (eigene DLL oder Skript)"),
         New Choice(ActionTypes.Wait, "Warten (für Mehrfach-Aktionen)")}
+
+    Private Shared ReadOnly MiniViewChoices As Choice() = {
+        New Choice("toggle", "Umschalten (ein ↔ aus)"), New Choice("show", "Einblenden"), New Choice("hide", "Ausblenden")}
 
     Private Shared ReadOnly MicChoices As Choice() = {
         New Choice("toggle", "Umschalten (stumm ↔ an)"), New Choice("mute", "Stumm schalten"), New Choice("unmute", "Einschalten")}
@@ -288,6 +292,7 @@ Public Class ActionEditor
                 End If
                 If a.Headers IsNot Nothing AndAlso a.Headers.Count > 0 Then r.Headers = a.Headers
             Case ActionTypes.Mic : r.Op = a.Op : r.Device = a.Device
+            Case ActionTypes.MiniView : r.Op = If(a.Op = "toggle", Nothing, a.Op)
             Case ActionTypes.Timer : r.Seconds = a.Seconds : r.File = a.File : r.Volume = a.Volume : r.Device = a.Device
             Case ActionTypes.Toggle : r.Actions = a.Actions
             Case ActionTypes.Command
@@ -353,6 +358,8 @@ Public Class ActionEditor
             Case ActionTypes.Mic
                 _working.Op = Choice.GetValue(DirectCast(_inputs("op"), ComboBox))
                 _working.Device = ComboValueOrNothing("device")
+            Case ActionTypes.MiniView
+                _working.Op = Choice.GetValue(DirectCast(_inputs("op"), ComboBox))
             Case ActionTypes.Timer
                 Dim m = DirectCast(_inputs("minutes"), NumericUpDown).Value
                 Dim s = DirectCast(_inputs("seconds"), NumericUpDown).Value
@@ -543,6 +550,10 @@ Public Class ActionEditor
                 inputs.AddRange(MicActionHandler.GetInputDevices().Select(Function(d) New Choice(d, d)))
                 AddComboRow("device", "Gerät:", inputs, If(a.Device, ""), editable:=True)
                 AddHint("Schaltet das Mikrofon systemweit in Windows stumm – wirkt in allen Programmen (Teams, Discord, OBS …).")
+            Case ActionTypes.MiniView
+                AddComboRow("op", "Aktion:", MiniViewChoices, If(a.Op, "toggle"), editable:=False)
+                AddHint("Kleines Fenster mit den Tasten der aktuellen Seite, immer im Vordergrund. Mit der Maus verschieben," &
+                        " Größe am Rand ziehen, Rechtsklick für Transparenz und weitere Einstellungen.")
             Case ActionTypes.Timer
                 Dim total = CInt(Math.Max(0, Math.Min(ActionRunner.MaxTimerSeconds, Math.Round(a.Seconds.GetValueOrDefault(300)))))
                 Dim minutes As New NumericUpDown With {.Minimum = 0, .Maximum = CDec(ActionRunner.MaxTimerSeconds / 60), .Value = total \ 60, .Width = 70}

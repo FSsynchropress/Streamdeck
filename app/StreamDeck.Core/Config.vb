@@ -16,6 +16,8 @@ Public Class DeckConfig
     Public Property Obs As New ObsSettings
     ''' <summary>Sounds zusätzlich ins Mikrofon mischen (z. B. damit man sie in Discord hört).</summary>
     Public Property VoiceMix As New VoiceMixSettings
+    ''' <summary>Mini-Ansicht: kleines Fenster mit dem Tastenraster der aktuellen Seite, immer im Vordergrund.</summary>
+    Public Property MiniView As New MiniViewSettings
     Public Property Profiles As New List(Of ProfileConfig)
 
     Public Function FindProfile(name As String) As ProfileConfig
@@ -51,6 +53,25 @@ Public Class VoiceMixSettings
     Public Property Communications As Boolean = True
 
     Public Const MaxMicVolume As Integer = 400
+End Class
+
+''' <summary>Mini-Ansicht (nur Anzeige). Position, Größe und Transparenz stellt man direkt am Fenster ein.</summary>
+Public Class MiniViewSettings
+    ''' <summary>Beim Beenden offen = beim nächsten Start wieder öffnen.</summary>
+    Public Property Visible As Boolean
+    ''' <summary>Linke obere Ecke in Bildschirmpixeln; leer = oben links auf dem Hauptbildschirm.</summary>
+    Public Property X As Integer?
+    Public Property Y As Integer?
+    ''' <summary>Kantenlänge einer Taste in Pixeln bei 100 % Skalierung.</summary>
+    Public Property KeySize As Integer = 48
+    ''' <summary>Deckkraft in % (MinOpacity–100).</summary>
+    Public Property Opacity As Integer = 85
+    ''' <summary>Mausklicks gehen durch das Fenster hindurch (lösen dann nur über das Tray-Menü).</summary>
+    Public Property ClickThrough As Boolean
+
+    Public Const MinKeySize As Integer = 24
+    Public Const MaxKeySize As Integer = 140
+    Public Const MinOpacity As Integer = 20
 End Class
 
 Public Class ProfileConfig
@@ -210,8 +231,12 @@ Public NotInheritable Class ActionTypes
     Public Const Random As String = "random"
     Public Const Window As String = "window"
     Public Const Plugin As String = "plugin"
+    Public Const MiniView As String = "miniview"
 
-    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Window, Obs, Page, Profile, Multi, Toggle, Random, Plugin, Wait}
+    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Window, Obs, Page, Profile, MiniView, Multi, Toggle, Random, Plugin, Wait}
+
+    ''' <summary>miniview: Mini-Ansicht umschalten, einblenden, ausblenden</summary>
+    Public Shared ReadOnly MiniViewOps As String() = {"toggle", "show", "hide"}
 
     ''' <summary>window: Monitor wechseln, maximieren, minimieren, wiederherstellen, Position/Größe in Prozent</summary>
     Public Shared ReadOnly WindowOps As String() = {"monitor", "nextMonitor", "maximize", "minimize", "restore", "move"}
@@ -277,6 +302,12 @@ Public NotInheritable Class ActionTypes
                     Case "restore" : Return $"{target} wiederherstellen"
                     Case "move" : Return $"{target} → {a.X}/{a.Y} % · {a.Width}×{a.Height} %"
                     Case Else : Return $"Fenster {a.Op}"
+                End Select
+            Case MiniView
+                Select Case If(a.Op, "toggle").ToLowerInvariant()
+                    Case "show" : Return "Mini-Ansicht einblenden"
+                    Case "hide" : Return "Mini-Ansicht ausblenden"
+                    Case Else : Return "Mini-Ansicht ein/aus"
                 End Select
             Case Plugin : Return $"Plugin {a.Plugin} {a.Args}".TrimEnd()
             Case Wait : Return $"{a.Ms} ms warten"
