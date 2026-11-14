@@ -90,6 +90,8 @@ Public Class TrayContext
     Private ReadOnly _notify As NotifyIcon
     Private ReadOnly _runner As ActionRunner
     Private ReadOnly _sound As SoundActionHandler
+    Private ReadOnly _voice As VoiceMixer
+    Private ReadOnly _voiceItem As ToolStripMenuItem
     Private ReadOnly _obs As ObsActionHandler
     Private ReadOnly _foregroundTimer As System.Windows.Forms.Timer
     Private ReadOnly _waitHandle As RegisteredWaitHandle
@@ -129,7 +131,8 @@ Public Class TrayContext
         _runner = New ActionRunner()
         ProcessActions.Register(_runner, AddressOf Log)
         NativeInput.Register(_runner)
-        _sound = New SoundActionHandler(AddressOf Log)
+        _voice = New VoiceMixer(AddressOf Log)
+        _sound = New SoundActionHandler(AddressOf Log, _voice)
         _runner.Register(ActionTypes.Sound, _sound)
         Engine = New DeckEngine(config, _runner)
         _obs = New ObsActionHandler(Function() Engine.Config.Obs)
@@ -163,6 +166,8 @@ Public Class TrayContext
         openItem.Font = New Font(openItem.Font, FontStyle.Bold)
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
+        _voiceItem = New ToolStripMenuItem("Sounds in Discord (Sprach-Mix)", Nothing, Sub() ToggleVoiceMix())
+        menu.Items.Add(_voiceItem)
         menu.Items.Add("Protokollordner öffnen", Nothing, Sub() OpenLogFolder())
         menu.Items.Add("Plugin-Ordner öffnen", Nothing, Sub() OpenFolder(Plugins.Folder))
         If Not Elevation.IsElevated() Then menu.Items.Add("Als Administrator neu starten", Nothing, Sub() RestartAsAdmin())
@@ -177,6 +182,7 @@ Public Class TrayContext
         menu.Items.Add("Beenden", Nothing, Sub() ExitApp())
         AddHandler menu.Opening, Sub()
                                      _autostartItem.Checked = SafeAutostartEnabled()
+                                     _voiceItem.Checked = Engine.Config.VoiceMix.Enabled
                                      RefreshTrayMenu()
                                  End Sub
         AddHandler Updates.UpdateReady, Sub(v) Post(Sub() OnUpdateReady(v))
@@ -198,6 +204,7 @@ Public Class TrayContext
         Autostart.RefreshPathIfEnabled()
         Log($"DIY Stream Deck {Updates.CurrentVersion}")
         Log($"Konfiguration: {configPath}")
+        ApplyVoiceMix(announce:=False)
         Connection.Start()
         Updates.Start()
         If Not startHidden Then ShowMainForm()
@@ -368,10 +375,34 @@ Public Class TrayContext
         End If
     End Sub
 
+    ''' <summary>Sprach-Mix (Sounds in Discord) per Tray-Menü ein-/ausschalten.</summary>
+    Private Sub ToggleVoiceMix()
+        Dim enable = Not Engine.Config.VoiceMix.Enabled
+        Engine.UpdateConfig(Sub(c) c.VoiceMix.Enabled = enable)
+        ApplyVoiceMix(announce:=True)
+    End Sub
+
+    ''' <summary>Startet den Sprach-Mix neu; Fehler werden immer gemeldet, Ein/Aus nur mit <paramref name="announce"/>.</summary>
+    Private Sub ApplyVoiceMix(announce As Boolean)
+        Dim s = Engine.Config.VoiceMix
+        Dim err = _voice.Apply(s)
+        If err IsNot Nothing Then
+            ShowHint("Sounds in Discord: Fehler", err)
+        ElseIf Not announce Then
+            Return
+        ElseIf s.Enabled Then
+            ShowHint("Sounds in Discord an", "In Discord als Eingabegerät 'CABLE Output' wählen.")
+        Else
+            ShowHint("Sounds in Discord aus", "Discord wieder auf das normale Mikrofon stellen.")
+        End If
+    End Sub
+
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
     Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
-                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer, runAsAdmin As Boolean)
+                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer, runAsAdmin As Boolean,
+                             voiceMix As VoiceMixSettings)
         Dim adminChanged = runAsAdmin <> Engine.Config.RunAsAdmin
+        Dim wasEnabled = Engine.Config.VoiceMix.Enabled
         Engine.UpdateConfig(Sub(c)
                                 c.RunAsAdmin = runAsAdmin
                                 c.LongPressMs = longPressMs
@@ -379,8 +410,10 @@ Public Class TrayContext
                                 c.ShowOverlay = showOverlay
                                 ConfigEdit.SetFolderBackKey(c, folderBackKey)
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}
+                                c.VoiceMix = voiceMix
                             End Sub)
         _obs.Reset()
+        ApplyVoiceMix(announce:=wasEnabled <> voiceMix.Enabled)
         If autostartEnabled <> SafeAutostartEnabled() OrElse (autostartEnabled AndAlso adminChanged) Then SetAutostart(autostartEnabled, runAsAdmin)
         If adminChanged AndAlso runAsAdmin AndAlso Not Elevation.IsElevated() Then
             If MessageBox.Show("Jetzt mit Administratorrechten neu starten?", "DIY Stream Deck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
@@ -456,6 +489,7 @@ Public Class TrayContext
         Connection.Stop()
         Engine.Dispose()
         _sound.Dispose()
+        _voice.Dispose()
         _obs.Dispose()
         _overlay?.Dispose()
     End Sub
