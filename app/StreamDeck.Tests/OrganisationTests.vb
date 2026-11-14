@@ -6,14 +6,26 @@ Imports Xunit
 Public Class CombineTests
     <Fact>
     Public Async Function ParallelMultiRunsAtTheSameTime() As Task
+        ' Jede Aktion wartet, bis alle drei gestartet sind. Liefen sie nacheinander,
+        ' käme die erste nie über das Tor hinaus (Timeout statt Hängen). Keine Messung
+        ' von Laufzeiten, damit der Test auf langsamen CI-Rechnern stabil bleibt.
         Dim r As New ActionRunner()
+        Dim started = 0
+        Dim timedOut = 0
+        Dim allStarted As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
+        r.Register("probe", New DelegateActionHandler(
+            Async Function(a, ctx)
+                If Threading.Interlocked.Increment(started) = 3 Then allStarted.TrySetResult(True)
+                Dim first = Await Task.WhenAny(allStarted.Task, Task.Delay(5000))
+                If first IsNot allStarted.Task Then Threading.Interlocked.Increment(timedOut)
+            End Function))
         Dim multi As New ActionConfig With {.ActionType = "multi", .Parallel = True, .Actions = New List(Of ActionConfig) From {
-            New ActionConfig With {.ActionType = "wait", .Ms = 300},
-            New ActionConfig With {.ActionType = "wait", .Ms = 300},
-            New ActionConfig With {.ActionType = "wait", .Ms = 300}}}
-        Dim sw = Diagnostics.Stopwatch.StartNew()
+            New ActionConfig With {.ActionType = "probe"},
+            New ActionConfig With {.ActionType = "probe"},
+            New ActionConfig With {.ActionType = "probe"}}}
         Await r.Fire(multi)
-        Assert.InRange(sw.ElapsedMilliseconds, 250, 800)   ' nacheinander wären es 900 ms
+        Assert.Equal(3, started)
+        Assert.Equal(0, timedOut)   ' nacheinander würden die ersten beiden ins Timeout laufen
     End Function
 
     <Fact>
