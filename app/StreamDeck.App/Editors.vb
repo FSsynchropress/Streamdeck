@@ -237,6 +237,7 @@ Public Class ActionEditor
             Case ActionTypes.Sound
                 r.File = a.File : r.Volume = a.Volume : r.Device = a.Device : r.Duration = a.Duration
                 If a.Restart.GetValueOrDefault() Then r.Restart = True
+                If a.Voice = False Then r.Voice = False
             Case ActionTypes.Launch : r.Path = a.Path : r.Args = a.Args
             Case ActionTypes.Close
                 r.Path = a.Path
@@ -286,6 +287,7 @@ Public Class ActionEditor
                 _working.Duration = If(dur > 0, dur, CType(Nothing, Double?))
                 _working.Device = ComboValueOrNothing("device")
                 _working.Restart = DirectCast(_inputs("restart"), CheckBox).Checked
+                _working.Voice = If(DirectCast(_inputs("voice"), CheckBox).Checked, CType(Nothing, Boolean?), False)
             Case ActionTypes.Launch
                 _working.Path = TextOf("path")
                 _working.Args = TextOf("args")
@@ -423,6 +425,10 @@ Public Class ActionEditor
                 Dim restart As New CheckBox With {.Text = "Erneuter Druck startet von vorn (statt zu stoppen)", .AutoSize = True, .Checked = a.Restart.GetValueOrDefault()}
                 AddRow("", restart)
                 _inputs("restart") = restart
+                Dim voice As New CheckBox With {.Text = "Auch in Discord hörbar (wenn 'Sounds in Discord' in den Einstellungen an ist)", .AutoSize = True,
+                                                .Checked = a.Voice.GetValueOrDefault(True)}
+                AddRow("", voice)
+                _inputs("voice") = voice
                 AddHint("'Mitgeliefert' bietet 50 freie Sounds (CC0, BigSoundBank.com). Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
             Case ActionTypes.Launch
                 Dim tb = AddTextRow("path", "Pfad:", a.Path)
@@ -916,6 +922,22 @@ Public Class SettingsForm
     Private ReadOnly _autostart As New CheckBox With {.Text = "Mit Windows starten", .AutoSize = True}
     Private ReadOnly _overlay As New CheckBox With {.Text = "Einblendung auf dem Bildschirm bei Profil-/Seiten-/Ordnerwechsel und Meldungen", .AutoSize = True}
     Private ReadOnly _folderBack As New NumericUpDown With {.Minimum = 0, .Maximum = ConfigStore.KeyCount - 1, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceEnabled As New CheckBox With {.Text = "Sounds zusätzlich ins Mikrofon mischen (Discord, Teams …)", .AutoSize = True}
+    Private ReadOnly _voiceMic As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
+    Private ReadOnly _voiceOut As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
+    Private ReadOnly _voiceMicVolume As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private Const DefaultMicText As String = "(Standard-Mikrofon)"
+
+    Public ReadOnly Property VoiceMix As VoiceMixSettings
+        Get
+            Dim mic = _voiceMic.Text.Trim()
+            Return New VoiceMixSettings With {
+                .Enabled = _voiceEnabled.Checked,
+                .Microphone = If(mic.Length = 0 OrElse mic = DefaultMicText, Nothing, mic),
+                .Output = If(String.IsNullOrWhiteSpace(_voiceOut.Text), "CABLE Input", _voiceOut.Text.Trim()),
+                .MicVolume = CInt(_voiceMicVolume.Value)}
+        End Get
+    End Property
 
     Public ReadOnly Property ShowOverlay As Boolean
         Get
@@ -970,6 +992,16 @@ Public Class SettingsForm
         _folderBack.Value = Math.Max(0, Math.Min(ConfigStore.KeyCount - 1, config.FolderBackKey))
         _obsUrl.Font = Theme.Mono(9.5F)
 
+        Dim vm = If(config.VoiceMix, New VoiceMixSettings)
+        _voiceEnabled.Checked = vm.Enabled
+        _voiceMic.Items.Add(DefaultMicText)
+        _voiceMic.Items.AddRange(MicActionHandler.GetInputDevices().Where(Function(d) d.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) < 0).ToArray())
+        _voiceMic.Text = If(String.IsNullOrWhiteSpace(vm.Microphone), DefaultMicText, vm.Microphone)
+        _voiceOut.Items.AddRange(SoundActionHandler.GetOutputDevices().ToArray())
+        Dim cable = VoiceMixer.FindCableOutput(vm.Output)
+        _voiceOut.Text = If(cable, vm.Output)
+        _voiceMicVolume.Value = Math.Max(0, Math.Min(100, vm.MicVolume))
+
         ' --- Gerät
         Dim device As New CardPanel With {.Fill = Theme.Raised, .Height = 68}
         Dim connected = portName IsNot Nothing
@@ -991,6 +1023,21 @@ Public Class SettingsForm
         folderRow.Controls.Add(_folderBack)
         folderRow.Controls.Add(New Label With {.Text = "Taste 0–14 (0 = oben links) – in Ordnern immer 'Zurück'", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
 
+        ' --- Sprach-Mix
+        Dim voiceHint As New Label With {
+            .Text = "Discord hört nur das Mikrofon. Die App mischt deshalb Mikrofon + Sounds und gibt beides auf einem virtuellen Kabel aus:" & vbCrLf &
+                    "1. VB-Audio Virtual Cable installieren (kostenlos, vb-audio.com/Cable) und neu starten." & vbCrLf &
+                    "2. Hier einschalten, darunter das echte Mikrofon wählen." & vbCrLf &
+                    "3. In Discord › Sprache & Video › Eingabegerät: 'CABLE Output'. Rauschunterdrückung (Krisp) ausschalten, sonst werden Sounds weggefiltert.",
+            .AutoSize = True, .MaximumSize = New Size(550, 0), .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F), .Padding = New Padding(20, 0, 0, 8)}
+        Dim cableFound = VoiceMixer.FindCableOutput(Nothing) IsNot Nothing
+        Dim voiceStatus As New Label With {
+            .Text = If(cableFound, "✓ Virtuelles Kabel gefunden.", "Kein virtuelles Kabel gefunden – bitte VB-Audio Virtual Cable installieren."),
+            .AutoSize = True, .ForeColor = If(cableFound, Theme.Good, Theme.Bad), .Font = Theme.Ui(8.5F), .Padding = New Padding(0, 4, 0, 0)}
+        Dim micVolRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        micVolRow.Controls.Add(_voiceMicVolume)
+        micVolRow.Controls.Add(New Label With {.Text = "% – Sounds behalten die Lautstärke der Taste", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+
         ' --- OBS
         Dim obsHint As New Label With {.Text = "In OBS: Werkzeuge › WebSocket-Servereinstellungen › 'WebSocket-Server aktivieren'. Adresse und Passwort stehen unter 'Verbindungsinformationen anzeigen'. Das Passwort wird unverschlüsselt in config.json gespeichert.",
                                        .AutoSize = True, .MaximumSize = New Size(550, 0), .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F), .Padding = New Padding(0, 8, 0, 0)}
@@ -1000,6 +1047,8 @@ Public Class SettingsForm
                        Section("Gerät"), device,
                        Section("Allgemein"), _autostart, autostartHint, _overlay, Theme.FieldLabel("Langer Druck ab"), longRow,
                        Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
+                       Section("Sounds in Discord (Sprach-Mix)"), _voiceEnabled, voiceHint, Theme.FieldLabel("Mikrofon"), _voiceMic,
+                       Theme.FieldLabel("Virtuelles Kabel (Ausgabegerät)"), _voiceOut, voiceStatus, Theme.FieldLabel("Mikrofon-Lautstärke im Mix"), micVolRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 
         Dim folderLink As New LinkLabel With {.Text = "Konfigurationsordner öffnen", .AutoSize = True, .Padding = New Padding(0, 9, 0, 0), .Visible = configPath IsNot Nothing}

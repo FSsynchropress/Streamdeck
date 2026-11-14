@@ -96,7 +96,7 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `text` | Text einfügen (über Zwischenablage + Strg+V oder Unicode-SendInput), optional Enter danach (`enter`) |
 | `media` | Play/Pause, Nächster/Vorheriger Titel, Stopp, Mute, Lautstärke ± |
 | `mic` | Mikrofon systemweit stumm/an/umschalten (`op`), alle Aufnahmegeräte oder eines (`device`) |
-| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt (`restart: true` = von vorn) |
+| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt (`restart: true` = von vorn); `voice: false` = nicht in den Sprach-Mix |
 | `timer` | Countdown (`seconds`), am Ende Hinweis + Ton (`file`, Standard `Sounds\alarm.mp3`); erneuter Druck bricht ab |
 | `launch` | Programm, Datei oder Ordner öffnen, mit Argumenten |
 | `close` | Programm schließen (Fenster wie mit X) oder mit `force` sofort beenden – z. B. als langer Druck |
@@ -117,6 +117,12 @@ Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT
 - **Ordner** = Seite mit `"folder": true`: per Taste geöffnet, verschachtelbar, feste Zurück-Taste (`folderBackKey`, Standard 0), beim Blättern übersprungen; die Startseite ist nie ein Ordner
 - Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (`showOverlay`); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
+
+### Sounds in Discord (Sprach-Mix)
+- Discord & Co. hören nur ein Eingabegerät. Mit `voiceMix.enabled` nimmt die App das Mikrofon auf (`microphone`, leer = Standard-Kommunikationsgerät), mischt die Sounds dazu und spielt beides auf einem virtuellen Kabel ab (`output`, Standard `CABLE Input` von VB-Audio Virtual Cable); `micVolume` 0–100
+- In Discord als Eingabegerät `CABLE Output` wählen, Rauschunterdrückung (Krisp) aus
+- Umschaltbar in den Einstellungen und im Tray-Menü; einzelne Sounds mit `voice: false` ausnehmen; der Timer-Wecker geht nie in den Mix
+- Code: `app/StreamDeck.App/VoiceMix.vb`
 
 ### Beispiel-Konfiguration
 ```json

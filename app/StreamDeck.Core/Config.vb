@@ -10,6 +10,8 @@ Public Class DeckConfig
     ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
     Public Property ShowOverlay As Boolean = True
     Public Property Obs As New ObsSettings
+    ''' <summary>Sounds zusätzlich ins Mikrofon mischen (z. B. damit man sie in Discord hört).</summary>
+    Public Property VoiceMix As New VoiceMixSettings
     Public Property Profiles As New List(Of ProfileConfig)
 
     Public Function FindProfile(name As String) As ProfileConfig
@@ -20,6 +22,21 @@ End Class
 Public Class ObsSettings
     Public Property Url As String = "ws://localhost:4455"
     Public Property Password As String = ""
+End Class
+
+''' <summary>
+''' Sprach-Mix: Die App nimmt das Mikrofon auf, mischt die Sounds dazu und gibt beides auf einem
+''' virtuellen Audiokabel aus (z. B. VB-Audio Virtual Cable). In Discord &amp; Co. wird dann
+''' "CABLE Output" als Eingabegerät gewählt.
+''' </summary>
+Public Class VoiceMixSettings
+    Public Property Enabled As Boolean
+    ''' <summary>Name (oder Teil davon) des Mikrofons, leer = Standard-Aufnahmegerät für Kommunikation.</summary>
+    Public Property Microphone As String
+    ''' <summary>Name (oder Teil davon) des Ausgabegeräts des virtuellen Kabels.</summary>
+    Public Property Output As String = "CABLE Input"
+    ''' <summary>Lautstärke des Mikrofons im Mix, 0–100.</summary>
+    Public Property MicVolume As Integer = 100
 End Class
 
 Public Class ProfileConfig
@@ -101,6 +118,8 @@ Public Class ActionConfig
     Public Property Duration As Double?
     ''' <summary>sound: True = erneuter Druck startet von vorn, sonst stoppt er den laufenden Sound</summary>
     Public Property Restart As Boolean?
+    ''' <summary>sound: False = nicht in den Sprach-Mix (Discord) mischen; leer = mischen, wenn der Sprach-Mix an ist</summary>
+    Public Property Voice As Boolean?
     Public Property Path As String
     Public Property Args As String
     Public Property Url As String

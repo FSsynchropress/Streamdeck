@@ -15,9 +15,12 @@ Public Class SoundActionHandler
     Private ReadOnly _lock As New Object
     Private ReadOnly _playing As New Dictionary(Of String, IWavePlayer)(StringComparer.OrdinalIgnoreCase)
     Private ReadOnly _log As Action(Of String)
+    Private ReadOnly _voice As VoiceMixer
 
-    Public Sub New(log As Action(Of String))
+    ''' <param name="voice">Sprach-Mix (Discord); Sounds werden zusätzlich dorthin gemischt, solange er läuft.</param>
+    Public Sub New(log As Action(Of String), Optional voice As VoiceMixer = Nothing)
         _log = log
+        _voice = voice
     End Sub
 
     Public Const BuiltInFolder As String = "Sounds"
@@ -98,8 +101,31 @@ Public Class SoundActionHandler
             Throw
         End Try
 
+        ' Zusätzlich in den Sprach-Mix (Discord) – eigene Kopie der Datei, gleiche Lautstärke und Dauer.
+        Dim voiceReader As AudioFileReader = Nothing
+        Dim voiceInput As VoiceInput = Nothing
+        If _voice IsNot Nothing AndAlso a.Voice.GetValueOrDefault(True) AndAlso _voice.IsRunning Then
+            Try
+                voiceReader = New AudioFileReader(file) With {.Volume = reader.Volume}
+                Dim voiceSource As ISampleProvider = voiceReader
+                If source IsNot reader Then voiceSource = New TrimFadeSampleProvider(voiceReader, seconds, FadeOutSeconds)
+                Dim vr = voiceReader
+                voiceInput = _voice.AddSound(voiceSource, Sub() Task.Run(Sub() vr.Dispose()))
+                If voiceInput Is Nothing Then voiceReader.Dispose()
+            Catch ex As Exception
+                voiceReader?.Dispose()
+                voiceInput = Nothing
+                _log($"Sprach-Mix: {ex.Message}")
+            End Try
+        End If
+
         AddHandler output.PlaybackStopped,
             Sub(s, e)
+                ' Gestoppt (erneuter Druck) oder zu Ende: auch im Sprach-Mix beenden.
+                If voiceInput IsNot Nothing Then
+                    voiceInput.Stop()
+                    If Not _voice.IsRunning Then voiceReader.Dispose()
+                End If
                 SyncLock _lock
                     Dim current As IWavePlayer = Nothing
                     If _playing.TryGetValue(file, current) AndAlso current Is output Then _playing.Remove(file)

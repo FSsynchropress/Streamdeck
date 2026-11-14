@@ -201,7 +201,8 @@ Public Class ActionRunner
             .File = If(String.IsNullOrWhiteSpace(action.File), DefaultTimerSound, action.File),
             .Volume = action.Volume,
             .Device = action.Device,
-            .Restart = True}
+            .Restart = True,
+            .Voice = False}   ' der Wecker ist nur für einen selbst, nicht für Discord
         Await RunAsync(sound, New ActionContext With {.KeyIndex = context.KeyIndex, .Cancellation = context.Cancellation, .Depth = context.Depth + 1}).ConfigureAwait(False)
     End Function
 

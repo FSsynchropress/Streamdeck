@@ -151,6 +151,27 @@ Public Class ConfigTests
         Assert.Null(page.GetKey(5))
         Assert.Equal(500, cfg.LongPressMs)
         Assert.NotNull(cfg.Obs)
+        Assert.NotNull(cfg.VoiceMix)
+        Assert.False(cfg.VoiceMix.Enabled)
+    End Sub
+
+    <Fact>
+    Public Sub VoiceMixSettingsRoundTripAndNormalize()
+        Dim cfg = ConfigStore.Deserialize("{""voiceMix"":{""enabled"":true,""microphone"":""Headset"",""output"":""CABLE Input"",""micVolume"":250}," &
+                                          """profiles"":[{""name"":""P"",""pages"":[{""name"":""S"",""keys"":{""0"":{""label"":""Tusch""," &
+                                          """press"":{""type"":""sound"",""file"":""a.mp3"",""voice"":false}}}}]}]}")
+        Assert.True(cfg.VoiceMix.Enabled)
+        Assert.Equal("Headset", cfg.VoiceMix.Microphone)
+        Assert.Equal(100, cfg.VoiceMix.MicVolume)   ' auf 0–100 begrenzt
+        Assert.False(cfg.Profiles(0).Pages(0).GetKey(0).Press.Voice)
+
+        Dim back = ConfigStore.Deserialize(ConfigStore.Serialize(cfg))
+        Assert.True(back.VoiceMix.Enabled)
+        Assert.Equal("CABLE Input", back.VoiceMix.Output)
+        Assert.False(back.Profiles(0).Pages(0).GetKey(0).Press.Voice)
+
+        Dim empty = ConfigStore.Deserialize("{""voiceMix"":null}")
+        Assert.NotNull(empty.VoiceMix)
     End Sub
 
     <Fact>
