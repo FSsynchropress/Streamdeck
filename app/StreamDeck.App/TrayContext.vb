@@ -135,14 +135,15 @@ Public Class TrayContext
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
         menu.Items.Add(New ToolStripSeparator())
+
+        ' Updates
+        Updates = New Updater(AddressOf Log)
+        menu.Items.Add(New ToolStripMenuItem($"Version {Updates.CurrentVersion}") With {.Enabled = False})
         _updateItem = New ToolStripMenuItem("Nach Updates suchen", Nothing, Sub() OnUpdateMenuClick())
         menu.Items.Add(_updateItem)
         menu.Items.Add(New ToolStripSeparator())
         menu.Items.Add("Beenden", Nothing, Sub() ExitApp())
         AddHandler menu.Opening, Sub() _autostartItem.Checked = SafeAutostartEnabled()
-
-        ' Updates
-        Updates = New Updater(AddressOf Log)
         AddHandler Updates.UpdateReady, Sub(v) Post(Sub() OnUpdateReady(v))
 
         _notify = New NotifyIcon With {.Icon = IconDisconnected, .Text = "DIY Stream Deck – nicht verbunden", .ContextMenuStrip = menu, .Visible = True}
