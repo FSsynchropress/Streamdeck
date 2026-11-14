@@ -262,13 +262,21 @@ Public Class ConfigTests
     End Sub
 
     <Fact>
-    Public Sub SoftClipLimitsToOne()
-        Dim buf = {0.5F, 0.9F, 3.0F, -3.0F}
-        SoftClip.Process(buf, 0, buf.Length)
-        Assert.Equal(0.5F, buf(0))
-        Assert.InRange(buf(1), 0.8F, 0.9F)
-        Assert.InRange(buf(2), 0.99F, 1.0F)
-        Assert.InRange(buf(3), -1.0F, -0.99F)
+    Public Sub LimiterKeepsPeaksBelowCeilingWithoutChangingQuietParts()
+        Dim lim As New Limiter(48000, 1, ceilingDb:=-3)
+        Dim ceiling = CSng(NoiseGate.DbToLinear(-3))
+        ' Leises Signal bleibt unverändert
+        Dim quiet = Enumerable.Range(0, 4800).Select(Function(i) CSng(0.3 * Math.Sin(i * 0.05))).ToArray()
+        Dim original = quiet.ToArray()
+        lim.Process(quiet, 0, quiet.Length)
+        Assert.True(original.SequenceEqual(quiet))
+        ' Viel zu lautes Signal (3-fach) überschreitet nie die Obergrenze
+        Dim loud = Enumerable.Range(0, 48000).Select(Function(i) CSng(3.0 * Math.Sin(i * 0.05))).ToArray()
+        lim.Process(loud, 0, loud.Length)
+        Assert.True(loud.Max(Function(v) Math.Abs(v)) <= ceiling + 0.000001F)
+        ' Form bleibt erhalten (keine Verzerrung): Vorzeichen und Nulldurchgänge wie im Original
+        Assert.True(loud(0) = 0.0F AndAlso loud(10) > 0 AndAlso loud(70) < 0)
+        Assert.InRange(lim.Gain, 0.2F, 0.3F)    ' ≈ 0.707 / 3
     End Sub
 
     <Fact>

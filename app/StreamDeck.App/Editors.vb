@@ -1040,6 +1040,8 @@ Public Class SettingsForm
     Private ReadOnly _voiceMicVolume As New NumericUpDown With {.Minimum = 0, .Maximum = VoiceMixSettings.MaxMicVolume, .Increment = 10, .Width = 70, .TextAlign = HorizontalAlignment.Right}
     Private ReadOnly _voiceGate As New CheckBox With {.Text = "Rauschsperre: Hintergrundgeräusche in Sprechpausen ausblenden (nur Mikrofon, nicht die Sounds)", .AutoSize = True}
     Private ReadOnly _voiceGateDb As New NumericUpDown With {.Minimum = -80, .Maximum = -10, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceSoundVolume As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Increment = 5, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceComm As New CheckBox With {.Text = "Windows-Sprachaufbereitung (Kommunikationsmodus) – aus, wenn das Mikro zu laut oder pumpend klingt", .AutoSize = True}
     Private Const DefaultMicText As String = "(Standard-Mikrofon)"
 
     Public ReadOnly Property VoiceMix As VoiceMixSettings
@@ -1051,7 +1053,9 @@ Public Class SettingsForm
                 .Output = If(String.IsNullOrWhiteSpace(_voiceOut.Text), "CABLE Input", _voiceOut.Text.Trim()),
                 .MicVolume = CInt(_voiceMicVolume.Value),
                 .NoiseGate = _voiceGate.Checked,
-                .NoiseGateDb = CInt(_voiceGateDb.Value)}
+                .NoiseGateDb = CInt(_voiceGateDb.Value),
+                .SoundVolume = CInt(_voiceSoundVolume.Value),
+                .Communications = _voiceComm.Checked}
         End Get
     End Property
 
@@ -1129,6 +1133,8 @@ Public Class SettingsForm
         _voiceMicVolume.Value = Math.Max(0, Math.Min(VoiceMixSettings.MaxMicVolume, vm.MicVolume))
         _voiceGate.Checked = vm.NoiseGate
         _voiceGateDb.Value = Math.Max(-80, Math.Min(-10, vm.NoiseGateDb))
+        _voiceSoundVolume.Value = Math.Max(0, Math.Min(100, vm.SoundVolume))
+        _voiceComm.Checked = vm.Communications
 
         ' --- Gerät
         Dim device As New CardPanel With {.Fill = Theme.Raised, .Height = 68}
@@ -1173,6 +1179,9 @@ Public Class SettingsForm
         Dim micVolRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         micVolRow.Controls.Add(_voiceMicVolume)
         micVolRow.Controls.Add(New Label With {.Text = "% – über 100 verstärkt ein leises Mikrofon (bis 400)", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim soundVolRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        soundVolRow.Controls.Add(_voiceSoundVolume)
+        soundVolRow.Controls.Add(New Label With {.Text = "% – Sounds im Mix leiser als bei dir, damit Mikro + Sound nicht übersteuern", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
         Dim gateRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         gateRow.Controls.Add(_voiceGateDb)
         gateRow.Controls.Add(New Label With {.Text = "dB – Schwelle: höher (z. B. -35) filtert mehr, schneidet aber leise Wörter ab", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
@@ -1189,7 +1198,7 @@ Public Class SettingsForm
                        Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
                        Section("Sounds in Discord (Sprach-Mix)"), _voiceEnabled, voiceHint, Theme.FieldLabel("Mikrofon"), _voiceMic,
                        Theme.FieldLabel("Virtuelles Kabel (Ausgabegerät)"), _voiceOut, voiceStatus, Theme.FieldLabel("Mikrofon-Lautstärke im Mix"), micVolRow,
-                       _voiceGate, gateRow,
+                       Theme.FieldLabel("Sound-Lautstärke im Mix"), soundVolRow, _voiceComm, _voiceGate, gateRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 
         Dim folderLink As New LinkLabel With {.Text = "Konfigurationsordner öffnen", .AutoSize = True, .Padding = New Padding(0, 9, 0, 0), .Visible = configPath IsNot Nothing}

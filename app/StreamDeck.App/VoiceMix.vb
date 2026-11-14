@@ -19,6 +19,8 @@ Public Class VoiceMixer
     Private _capture As WasapiCapture
     Private _output As WasapiOut
     Private _mixer As MixingSampleProvider
+    ''' <summary>Zusätzlicher Faktor für Sounds im Mix (Reserve, damit Mikro + Sound nicht übersteuern).</summary>
+    Private _soundVolume As Single = 1.0F
     Private _devices As New List(Of MMDevice)
 
     Public Sub New(log As Action(Of String))
@@ -85,7 +87,7 @@ Public Class VoiceMixer
             ' Mikrofon – im Kommunikationsmodus wie Discord/Teams, damit Windows bzw. der Treiber
             ' seine Sprachaufbereitung (Pegel, Rauschfilter, Beamforming) anwendet.
             Dim capture As New WasapiCapture(mic, True, 20)
-            Dim communications = TrySetCommunicationsCategory(capture)
+            Dim communications = s.Communications AndAlso TrySetCommunicationsCategory(capture)
             Dim buffer As New BufferedWaveProvider(capture.WaveFormat) With {
                 .DiscardOnBufferOverflow = True, .BufferDuration = TimeSpan.FromMilliseconds(500), .ReadFully = True}
             AddHandler capture.DataAvailable,
@@ -102,9 +104,9 @@ Public Class VoiceMixer
             micChain = New VolumeSampleProvider(micChain) With {.Volume = s.MicVolume / 100.0F}
             mixer.AddMixerInput(Adapt(micChain, format))
 
-            ' Ausgabe aufs Kabel (weich begrenzt, damit Verstärkung + Sounds nicht übersteuern)
+            ' Ausgabe aufs Kabel – mit Limiter, damit Verstärkung + Sounds nicht übersteuern
             Dim output As New WasapiOut(render, AudioClientShareMode.Shared, True, 40)
-            output.Init(New SoftClipSampleProvider(mixer))
+            output.Init(New LimiterSampleProvider(mixer))
             AddHandler output.PlaybackStopped,
                 Sub(o, e)
                     If e.Exception IsNot Nothing Then _log($"Sprach-Mix: Ausgabe-Fehler: {e.Exception.Message}")
@@ -114,11 +116,12 @@ Public Class VoiceMixer
                 _capture = capture
                 _output = output
                 _mixer = mixer
+                _soundVolume = s.SoundVolume / 100.0F
             End SyncLock
             output.Play()
             capture.StartRecording()
             _log($"Sprach-Mix aktiv: {mic.FriendlyName} + Sounds → {render.FriendlyName}" &
-                 $" (Mikrofon {s.MicVolume} %, Rauschsperre {If(s.NoiseGate, $"{s.NoiseGateDb} dB", "aus")}" &
+                 $" (Mikrofon {s.MicVolume} %, Sounds {s.SoundVolume} %, Rauschsperre {If(s.NoiseGate, $"{s.NoiseGateDb} dB", "aus")}" &
                  $"{If(communications, ", Kommunikationsmodus", "")})")
         End Using
     End Sub
@@ -179,11 +182,14 @@ Public Class VoiceMixer
     ''' </summary>
     Public Function AddSound(source As ISampleProvider, onEnd As Action) As VoiceInput
         Dim mixer As MixingSampleProvider
+        Dim volume As Single
         SyncLock _lock
             mixer = _mixer
+            volume = _soundVolume
         End SyncLock
         If mixer Is Nothing Then Return Nothing
-        Dim input As New VoiceInput(Adapt(source, mixer.WaveFormat), onEnd)
+        Dim scaled = New VolumeSampleProvider(source) With {.Volume = volume}
+        Dim input As New VoiceInput(Adapt(scaled, mixer.WaveFormat), onEnd)
         mixer.AddMixerInput(input)
         Return input
     End Function
@@ -240,14 +246,16 @@ Public Class NoiseGateSampleProvider
     End Function
 End Class
 
-''' <summary>Weiche Begrenzung (StreamDeck.Core.SoftClip) als NAudio-Baustein.</summary>
-Public Class SoftClipSampleProvider
+''' <summary>Limiter (StreamDeck.Core.Limiter) als NAudio-Baustein.</summary>
+Public Class LimiterSampleProvider
     Implements ISampleProvider
 
     Private ReadOnly _source As ISampleProvider
+    Private ReadOnly _limiter As Limiter
 
     Public Sub New(source As ISampleProvider)
         _source = source
+        _limiter = New Limiter(source.WaveFormat.SampleRate, source.WaveFormat.Channels, ceilingDb:=-3)
     End Sub
 
     Public ReadOnly Property WaveFormat As WaveFormat Implements ISampleProvider.WaveFormat
@@ -258,7 +266,7 @@ Public Class SoftClipSampleProvider
 
     Public Function Read(buffer As Single(), offset As Integer, count As Integer) As Integer Implements ISampleProvider.Read
         Dim n = _source.Read(buffer, offset, count)
-        SoftClip.Process(buffer, offset, n)
+        _limiter.Process(buffer, offset, n)
         Return n
     End Function
 End Class
