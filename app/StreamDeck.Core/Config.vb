@@ -5,7 +5,17 @@ Public Class DeckConfig
     Public Property ActiveProfile As String = "Standard"
     ''' <summary>Ab dieser Haltedauer gilt ein Druck als lang (nur für Tasten mit longPress-Aktion).</summary>
     Public Property LongPressMs As Integer = 500
+    ''' <summary>Zeitfenster für den zweiten Druck eines Doppeldrucks (nur für Tasten mit doublePress-Aktion).</summary>
+    Public Property DoublePressMs As Integer = 300
+    ''' <summary>In Ordnern ist diese Taste (0–14) immer die Zurück-Taste.</summary>
+    Public Property FolderBackKey As Integer = 0
+    ''' <summary>Kurze Einblendung auf dem Bildschirm beim Wechsel von Profil/Seite/Ordner und für Meldungen.</summary>
+    Public Property ShowOverlay As Boolean = True
+    ''' <summary>App mit Administratorrechten starten (nötig für Hotkeys in Programmen, die als Administrator laufen).</summary>
+    Public Property RunAsAdmin As Boolean
     Public Property Obs As New ObsSettings
+    ''' <summary>Sounds zusätzlich ins Mikrofon mischen (z. B. damit man sie in Discord hört).</summary>
+    Public Property VoiceMix As New VoiceMixSettings
     Public Property Profiles As New List(Of ProfileConfig)
 
     Public Function FindProfile(name As String) As ProfileConfig
@@ -16,6 +26,21 @@ End Class
 Public Class ObsSettings
     Public Property Url As String = "ws://localhost:4455"
     Public Property Password As String = ""
+End Class
+
+''' <summary>
+''' Sprach-Mix: Die App nimmt das Mikrofon auf, mischt die Sounds dazu und gibt beides auf einem
+''' virtuellen Audiokabel aus (z. B. VB-Audio Virtual Cable). In Discord &amp; Co. wird dann
+''' "CABLE Output" als Eingabegerät gewählt.
+''' </summary>
+Public Class VoiceMixSettings
+    Public Property Enabled As Boolean
+    ''' <summary>Name (oder Teil davon) des Mikrofons, leer = Standard-Aufnahmegerät für Kommunikation.</summary>
+    Public Property Microphone As String
+    ''' <summary>Name (oder Teil davon) des Ausgabegeräts des virtuellen Kabels.</summary>
+    Public Property Output As String = "CABLE Input"
+    ''' <summary>Lautstärke des Mikrofons im Mix, 0–100.</summary>
+    Public Property MicVolume As Integer = 100
 End Class
 
 Public Class ProfileConfig
@@ -31,6 +56,11 @@ End Class
 
 Public Class PageConfig
     Public Property Name As String = "Start"
+    ''' <summary>
+    ''' True = Ordner: wird über eine Taste geöffnet (verschachtelbar), hat eine feste Zurück-Taste
+    ''' (DeckConfig.FolderBackKey) und wird beim Vor-/Zurückblättern übersprungen.
+    ''' </summary>
+    Public Property Folder As Boolean?
     ''' <summary>Schlüssel "0".."14" (Taste zeilenweise von oben links).</summary>
     Public Property Keys As New Dictionary(Of String, KeyConfig)
 
@@ -44,14 +74,29 @@ Public Class PageConfig
         Dim id = index.ToString(Globalization.CultureInfo.InvariantCulture)
         If key Is Nothing Then Keys.Remove(id) Else Keys(id) = key
     End Sub
+
+    <JsonIgnore>
+    Public ReadOnly Property IsFolder As Boolean
+        Get
+            Return Folder.GetValueOrDefault()
+        End Get
+    End Property
 End Class
 
 Public Class KeyConfig
     Public Property Label As String
     ''' <summary>Pfad zu einer Bilddatei (PNG, JPG, ICO …).</summary>
     Public Property Icon As String
+    ''' <summary>Freitext-Beschreibung (nur für Oberfläche und Druckvorlage).</summary>
+    Public Property Description As String
     Public Property Press As ActionConfig
     Public Property LongPress As ActionConfig
+    ''' <summary>Aktion bei zweimal schnell hintereinander drücken.</summary>
+    Public Property DoublePress As ActionConfig
+    ''' <summary>Aktion beim Loslassen (z. B. Push-to-Talk: Druck = Mikro an, Loslassen = Mikro aus).</summary>
+    Public Property Release As ActionConfig
+    ''' <summary>Kurzen Druck wiederholen, solange die Taste gehalten wird (z. B. Lautstärke). Nur ohne lang/doppelt.</summary>
+    Public Property Repeat As Boolean?
 End Class
 
 ''' <summary>
@@ -85,6 +130,8 @@ Public Class ActionConfig
     Public Property Duration As Double?
     ''' <summary>sound: True = erneuter Druck startet von vorn, sonst stoppt er den laufenden Sound</summary>
     Public Property Restart As Boolean?
+    ''' <summary>sound: False = nicht in den Sprach-Mix (Discord) mischen; leer = mischen, wenn der Sprach-Mix an ist</summary>
+    Public Property Voice As Boolean?
     Public Property Path As String
     Public Property Args As String
     Public Property Url As String
@@ -114,8 +161,19 @@ Public Class ActionConfig
     ''' <summary>page: Seitenname, "@back" (vorige Seite) oder "@first" (erste Seite); profile: Profilname</summary>
     Public Property Target As String
     Public Property Actions As List(Of ActionConfig)
+    ''' <summary>multi: True = alle Aktionen gleichzeitig starten statt nacheinander</summary>
+    Public Property Parallel As Boolean?
     ''' <summary>wait: Wartezeit in Millisekunden</summary>
     Public Property Ms As Integer?
+    ''' <summary>window: Zielmonitor (1 = erster Monitor laut Windows-Reihenfolge)</summary>
+    Public Property Monitor As Integer?
+    ''' <summary>window (op "move"): Position und Größe in Prozent des Monitor-Arbeitsbereichs</summary>
+    Public Property X As Integer?
+    Public Property Y As Integer?
+    Public Property Width As Integer?
+    Public Property Height As Integer?
+    ''' <summary>plugin: Name des Plugins (DLL-Plugin oder Skript im Plugin-Ordner)</summary>
+    Public Property Plugin As String
 End Class
 
 Public NotInheritable Class ActionTypes
@@ -139,8 +197,14 @@ Public NotInheritable Class ActionTypes
     Public Const Mic As String = "mic"
     Public Const Timer As String = "timer"
     Public Const Toggle As String = "toggle"
+    Public Const Random As String = "random"
+    Public Const Window As String = "window"
+    Public Const Plugin As String = "plugin"
 
-    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Obs, Page, Profile, Multi, Toggle, Wait}
+    Public Shared ReadOnly All As String() = {Hotkey, Text, Media, Sound, Launch, Close, Url, Http, Command, Mic, Timer, Window, Obs, Page, Profile, Multi, Toggle, Random, Plugin, Wait}
+
+    ''' <summary>window: Monitor wechseln, maximieren, minimieren, wiederherstellen, Position/Größe in Prozent</summary>
+    Public Shared ReadOnly WindowOps As String() = {"monitor", "nextMonitor", "maximize", "minimize", "restore", "move"}
 
     Public Shared ReadOnly HttpMethods As String() = {"GET", "POST", "PUT", "PATCH", "DELETE"}
     Public Shared ReadOnly MicOps As String() = {"toggle", "mute", "unmute"}
@@ -150,6 +214,19 @@ Public NotInheritable Class ActionTypes
 
     Public Const PageBack As String = "@back"
     Public Const PageFirst As String = "@first"
+    ''' <summary>page/profile: nächste bzw. vorige Seite (Ordner werden übersprungen) oder nächstes/voriges Profil</summary>
+    Public Const TargetNext As String = "@next"
+    Public Const TargetPrev As String = "@prev"
+
+    Private Shared Function DescribeTarget(target As String) As String
+        Select Case If(target, "").ToLowerInvariant()
+            Case PageBack : Return "zurück"
+            Case PageFirst : Return "erste Seite"
+            Case TargetNext : Return "nächste"
+            Case TargetPrev : Return "vorige"
+            Case Else : Return target
+        End Select
+    End Function
 
     ''' <summary>Kurzbeschreibung für Tooltips und Log.</summary>
     Public Shared Function Describe(a As ActionConfig) As String
@@ -176,9 +253,22 @@ Public NotInheritable Class ActionTypes
             Case Toggle : Return $"Umschalten zwischen {If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen"
             Case Command : Return $"{If(String.IsNullOrEmpty(a.Shell), "cmd", a.Shell)}: {Shorten(a.Command)}"
             Case Obs : Return $"OBS {a.Op} {If(a.Scene, "")} {If(a.Source, "")}".TrimEnd()
-            Case Page : Return $"Seite → {a.Target}"
-            Case Profile : Return $"Profil → {a.Target}"
-            Case Multi : Return $"{If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen nacheinander"
+            Case Page : Return $"Seite → {DescribeTarget(a.Target)}"
+            Case Profile : Return $"Profil → {DescribeTarget(a.Target)}"
+            Case Multi : Return $"{If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen {If(a.Parallel.GetValueOrDefault(), "gleichzeitig", "nacheinander")}"
+            Case Random : Return $"Zufällig eine von {If(a.Actions Is Nothing, 0, a.Actions.Count)} Aktionen"
+            Case Window
+                Dim target = If(String.IsNullOrWhiteSpace(a.Path), "aktives Fenster", a.Path)
+                Select Case If(a.Op, "").ToLowerInvariant()
+                    Case "monitor" : Return $"{target} → Monitor {a.Monitor.GetValueOrDefault(1)}"
+                    Case "nextmonitor" : Return $"{target} → nächster Monitor"
+                    Case "maximize" : Return $"{target} maximieren"
+                    Case "minimize" : Return $"{target} minimieren"
+                    Case "restore" : Return $"{target} wiederherstellen"
+                    Case "move" : Return $"{target} → {a.X}/{a.Y} % · {a.Width}×{a.Height} %"
+                    Case Else : Return $"Fenster {a.Op}"
+                End Select
+            Case Plugin : Return $"Plugin {a.Plugin} {a.Args}".TrimEnd()
             Case Wait : Return $"{a.Ms} ms warten"
             Case Else : Return a.ActionType
         End Select

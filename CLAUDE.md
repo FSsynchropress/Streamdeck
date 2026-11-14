@@ -83,11 +83,16 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 - Aktionen werden asynchron ausgeführt, damit ein langsamer Befehl keine anderen Tasten blockiert
 
 ### Oberfläche
-- Raster 3×5 wie das echte Gerät, jede Taste mit Label und optionalem Icon
-- Klick auf eine Taste öffnet den Editor: Label, Icon, Aktion für kurzen Druck, optional Aktion für langen Druck
+- Raster 3×5 wie das echte Gerät, jede Taste mit Label, Beschreibung (`description`) und optionalem Icon
+- Klick auf eine Taste öffnet den Inspektor: Reiter Kurz / Lang / Doppelt / Loslassen (`press`, `longPress`, `doublePress`, `release`), „Wiederholen beim Halten“ (`repeat`), Testen-Knopf
+  - Kurz löst sofort aus; ist Lang belegt, erst beim Loslassen; ist Doppelt belegt, nach dem Zeitfenster `doublePressMs`
+  - Loslassen läuft zusätzlich bei jedem Loslassen und beim Verbindungsabbruch (Push-to-Talk)
+  - Wiederholen nur ohne Lang/Doppelt
+- Aktionsleiste: Aktionstyp per Drag-and-drop auf eine Taste ziehen
+- „Taste lernen“: nächster Druck am Gerät wählt die Taste in der Oberfläche aus (ohne Aktion)
 - Tastendruck am Gerät wird im Raster live hervorgehoben
 - Import/Export der Konfiguration
-- Aus den Labels/Icons eine druckbare Vorlage für die Keycap-Einleger erzeugen (16 × 16 mm pro Taste) – optional, später
+- „Druckvorlage“: Keycap-Einleger 16 × 16 mm pro Taste, je Seite ein Raster, drucken oder als PNG (300 dpi) speichern
 
 ### Aktionstypen
 | Typ | Beschreibung |
@@ -96,7 +101,7 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `text` | Text einfügen (über Zwischenablage + Strg+V oder Unicode-SendInput), optional Enter danach (`enter`) |
 | `media` | Play/Pause, Nächster/Vorheriger Titel, Stopp, Mute, Lautstärke ± |
 | `mic` | Mikrofon systemweit stumm/an/umschalten (`op`), alle Aufnahmegeräte oder eines (`device`) |
-| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt (`restart: true` = von vorn) |
+| `sound` | WAV/MP3 abspielen, wählbares Ausgabegerät und Lautstärke, erneuter Druck stoppt (`restart: true` = von vorn); `voice: false` = nicht in den Sprach-Mix |
 | `timer` | Countdown (`seconds`), am Ende Hinweis + Ton (`file`, Standard `Sounds\alarm.mp3`); erneuter Druck bricht ab |
 | `launch` | Programm, Datei oder Ordner öffnen, mit Argumenten |
 | `close` | Programm schließen (Fenster wie mit X) oder mit `force` sofort beenden – z. B. als langer Druck |
@@ -104,16 +109,33 @@ Zeilenbasierter ASCII-Text, jede Nachricht endet mit `\n`.
 | `http` | HTTP-Anfrage im Hintergrund (`method`, `url`, `body`, `contentType`, `headers`), z. B. n8n-Webhook |
 | `command` | Kommando oder PowerShell-Skript ausführen (versteckt oder sichtbar) |
 | `obs` | OBS-Szene wechseln, Aufnahme/Stream starten/stoppen, Quelle ein-/ausblenden |
-| `page` | Zu einer anderen Seite/Ordner wechseln (mehr als 15 Belegungen) |
-| `profile` | Profil wechseln |
-| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) |
+| `page` | Zu einer Seite/einem Ordner wechseln; `target` auch `@back`, `@first`, `@next`, `@prev` (Blättern überspringt Ordner) |
+| `profile` | Profil wechseln; `target` auch `@next`/`@prev` (reihum) |
+| `multi` | Mehrere Aktionen nacheinander mit Wartezeiten (`wait`) oder mit `parallel: true` gleichzeitig |
 | `toggle` | Bei jedem Druck die nächste Aktion aus `actions` (Hotkey-Switch, Multi-Action-Switch) |
+| `random` | Zufällig eine Aktion aus `actions` (nie zweimal dieselbe hintereinander) |
+| `window` | Fenster (`path` = Programm, leer = aktives Fenster): `op` monitor (`monitor` 1…n), nextMonitor, maximize, minimize, restore, move (`x`/`y`/`width`/`height` in % des Arbeitsbereichs) |
+| `plugin` | Eigenes Plugin `plugin` mit `args`: .NET-DLL (Klasse implementiert `IDeckPlugin` aus StreamDeck.Core) oder Skript `.ps1/.cmd/.bat/.py/.exe` im Ordner `%APPDATA%\StreamDeck\plugins` (Umgebungsvariable `STREAMDECK_KEY`) |
+
+Smart Home: `http` hat Vorlagen für Philips Hue, Home Assistant und n8n; An/Aus auf einer Taste über `toggle` mit zwei HTTP-Aktionen.
 
 Protokoll für die Fehlersuche: `%APPDATA%\StreamDeck\logs\streamdeck-JJJJ-MM-TT.log` (14 Tage, Tray-Menü „Protokollordner öffnen“).
 
+### Profile teilen & Administratorrechte
+- Profil-Kontextmenü: „Profil exportieren“ schreibt `<Name>.sdprofile.json` (`{"streamDeckProfile": 1, "profile": {…}}`), „Profil importieren“ fügt es hinzu (Namenskonflikt → „Name 2“). Pfade sind rechnerabhängig.
+- Einstellung „Mit Administratorrechten ausführen“ (`runAsAdmin`): Start fragt per UAC und startet neu (`--wait-for <pid>` wartet auf die alte Instanz, `--no-elevate` überspringt). Autostart läuft dann über die geplante Aufgabe „DIY StreamDeck (Administrator)“ (bei Anmeldung, höchste Privilegien) statt über den Run-Schlüssel. Tray-Menü: „Als Administrator neu starten“.
+
 ### Seiten & Profile
 - Mehrere **Seiten** pro Profil; eine Taste kann als „Zurück"-Taste dienen
+- **Ordner** = Seite mit `"folder": true`: per Taste geöffnet, verschachtelbar, feste Zurück-Taste (`folderBackKey`, Standard 0), beim Blättern übersprungen; die Startseite ist nie ein Ordner
+- Wechsel am Gerät oder durch Smart Profiles zeigen ein kurzes On-Screen-Overlay (`showOverlay`); Tray-Tooltip und Tray-Menü zeigen Profil/Seite, im Tray-Menü lässt sich das Profil wählen
 - Mehrere **Profile**, optional automatisch umschalten je nach aktivem Programm (Prozessname des Vordergrundfensters)
+
+### Sounds in Discord (Sprach-Mix)
+- Discord & Co. hören nur ein Eingabegerät. Mit `voiceMix.enabled` nimmt die App das Mikrofon auf (`microphone`, leer = Standard-Kommunikationsgerät), mischt die Sounds dazu und spielt beides auf einem virtuellen Kabel ab (`output`, Standard `CABLE Input` von VB-Audio Virtual Cable); `micVolume` 0–100
+- In Discord als Eingabegerät `CABLE Output` wählen, Rauschunterdrückung (Krisp) aus
+- Umschaltbar in den Einstellungen und im Tray-Menü; einzelne Sounds mit `voice: false` ausnehmen; der Timer-Wecker geht nie in den Mix
+- Code: `app/StreamDeck.App/VoiceMix.vb`
 
 ### Beispiel-Konfiguration
 ```json

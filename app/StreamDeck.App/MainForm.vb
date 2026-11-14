@@ -24,6 +24,7 @@ Public Class MainForm
     Private ReadOnly _inspector As KeyInspector
     Private ReadOnly _tip As New ToolTip()
     Private _copied As KeyConfig
+    Private ReadOnly _learnButton As New ThemedButton("Taste lernen")
     Private _selected As Integer = 0
 
     Public Sub New(tray As TrayContext)
@@ -52,6 +53,7 @@ Public Class MainForm
         ' Ereignisse von Engine/Tray (kommen auf beliebigen Threads)
         AddHandler _engine.StateChanged, AddressOf Engine_StateChanged
         AddHandler _engine.KeyStateChanged, AddressOf Engine_KeyStateChanged
+        AddHandler _engine.KeyLearned, AddressOf Engine_KeyLearned
         AddHandler _tray.LogAdded, AddressOf Tray_LogAdded
         AddHandler _tray.ConnectionChanged, AddressOf UpdateConnectionStatus
 
@@ -99,6 +101,17 @@ Public Class MainForm
         Dim more As New ThemedButton("Weitere Seitenaktionen", ButtonKind.IconOnly, Theme.GlyphMore)
         AddHandler more.Click, Sub() ShowPageMenu(more)
         _tip.SetToolTip(more, "Weitere Seitenaktionen")
+        AddHandler _learnButton.Click, Sub() SetLearnMode(Not _engine.LearnMode)
+        _tip.SetToolTip(_learnButton, "Danach eine Taste am Gerät drücken – sie wird hier ausgewählt (ohne die Aktion auszuführen)")
+        Dim print As New ThemedButton("Druckvorlage")
+        AddHandler print.Click, Sub()
+                                    Using d As New KeycapSheetDialog(_engine.CurrentProfile)
+                                        d.ShowDialog(Me)
+                                    End Using
+                                End Sub
+        _tip.SetToolTip(print, "Belegung als Vorlage für die Keycap-Einleger drucken oder als Bild speichern")
+        actions.Controls.Add(_learnButton)
+        actions.Controls.Add(print)
         actions.Controls.Add(rename)
         actions.Controls.Add(more)
         head.Controls.Add(titles)
@@ -129,13 +142,14 @@ Public Class MainForm
         logCard.Controls.Add(logHead)
 
         ' --- Geräteplatte
-        Dim hint As New Label With {.Text = "Klick = bearbeiten · Rechtsklick = Menü · Ziehen = tauschen · Am Gerät gedrückte Tasten leuchten live auf",
+        Dim hint As New Label With {.Text = "Klick = bearbeiten · Rechtsklick = Menü · Ziehen = tauschen · Aktion von oben auf eine Taste ziehen = zuweisen · Am Gerät gedrückte Tasten leuchten live auf",
                                     .Dock = DockStyle.Bottom, .Height = 34, .TextAlign = ContentAlignment.MiddleCenter, .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F)}
         For i = 0 To ConfigStore.KeyCount - 1
             Dim b As New KeyButton(i)
             AddHandler b.Click, AddressOf KeyButton_Click
             AddHandler b.MouseUp, AddressOf KeyButton_MouseUp
             AddHandler b.SwapRequested, AddressOf SwapKeys
+            AddHandler b.ActionDropped, AddressOf DropAction
             _buttons(i) = b
             _plate.Controls.Add(b)
         Next
@@ -146,9 +160,43 @@ Public Class MainForm
         center.Controls.Add(hint)
         center.Controls.Add(Spacer(14, DockStyle.Bottom))
         center.Controls.Add(logCard)
+        center.Controls.Add(BuildPalette())
         center.Controls.Add(head)
         Return center
     End Function
+
+    ''' <summary>Aktionsleiste: jeden Aktionstyp per Drag-and-drop auf eine Taste ziehen.</summary>
+    Private Function BuildPalette() As Control
+        Dim strip As New FlowLayoutPanel With {.Dock = DockStyle.Top, .AutoSize = True, .WrapContents = True, .Padding = New Padding(0, 0, 0, 10)}
+        For Each t In ActionTypes.All.Where(Function(x) x <> ActionTypes.Wait)
+            strip.Controls.Add(New ActionChip(t))
+        Next
+        Return strip
+    End Function
+
+    Private Sub DropAction(index As Integer, actionType As String)
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, index) Then Return
+        SelectKey(index)
+        If _inspector.KeyIndex = index Then _inspector.ApplyActionType(actionType)
+    End Sub
+
+    ' ------------------------------------------------------------------ Taste lernen
+
+    Private Sub SetLearnMode(active As Boolean)
+        _engine.LearnMode = active
+        _learnButton.Text = If(active, "Taste am Gerät drücken …", "Taste lernen")
+        _learnButton.Invalidate()
+    End Sub
+
+    Private Sub Engine_KeyLearned(keyIndex As Integer)
+        OnUi(Sub()
+                 SetLearnMode(False)
+                 If keyIndex >= 0 AndAlso keyIndex < _buttons.Length Then
+                     SelectKey(keyIndex)
+                     _buttons(keyIndex).Focus()
+                 End If
+             End Sub)
+    End Sub
 
     Private Shared Function Spacer(height As Integer, Optional dock As DockStyle = DockStyle.Top) As Panel
         Return New Panel With {.Height = height, .Dock = dock}
@@ -322,6 +370,8 @@ Public Class MainForm
     Protected Overrides Sub OnFormClosed(e As FormClosedEventArgs)
         RemoveHandler _engine.StateChanged, AddressOf Engine_StateChanged
         RemoveHandler _engine.KeyStateChanged, AddressOf Engine_KeyStateChanged
+        RemoveHandler _engine.KeyLearned, AddressOf Engine_KeyLearned
+        _engine.LearnMode = False
         RemoveHandler _tray.LogAdded, AddressOf Tray_LogAdded
         RemoveHandler _tray.ConnectionChanged, AddressOf UpdateConnectionStatus
         MyBase.OnFormClosed(e)
@@ -363,7 +413,8 @@ Public Class MainForm
         For Each pg In profile.Pages
             Dim name = pg.Name
             Dim used = Enumerable.Range(0, ConfigStore.KeyCount).Count(Function(i) pg.GetKey(i) IsNot Nothing)
-            Dim item As New NavItem(name) With {.Selected = name = page.Name, .Badge = $"{used}/{ConfigStore.KeyCount}"}
+            Dim item As New NavItem(If(pg.IsFolder, "▸ " & name, name)) With {.Selected = name = page.Name, .Badge = $"{used}/{ConfigStore.KeyCount}",
+                                                                           .Subtitle = If(pg.IsFolder, "Ordner", Nothing)}
             AddHandler item.Click, Sub() _engine.GoToPage(name)
             AddHandler item.DoubleClick, Sub() RenamePage(name)
             AddHandler item.MouseUp, Sub(s, e)
@@ -373,7 +424,7 @@ Public Class MainForm
         Next
         ReplaceItems(_pageList, pageItems)
 
-        _crumb.Text = $"Profil {profile.Name}  /  Seite"
+        _crumb.Text = $"Profil {profile.Name}  /  {If(page.IsFolder, "Ordner", "Seite")}"
         _pageTitle.Text = page.Name
 
         SyncInspector(profile, page)
@@ -416,7 +467,11 @@ Public Class MainForm
         Dim s = $"Taste {index} (Reihe {index \ Cols + 1}, Spalte {index Mod Cols + 1})"
         If k Is Nothing Then Return s & vbCrLf & "nicht belegt – klicken zum Bearbeiten"
         s &= vbCrLf & "Kurz: " & ActionTypes.Describe(k.Press)
+        If k.Repeat.GetValueOrDefault() Then s &= " (wiederholt beim Halten)"
         If k.LongPress IsNot Nothing Then s &= vbCrLf & "Lang: " & ActionTypes.Describe(k.LongPress)
+        If k.DoublePress IsNot Nothing Then s &= vbCrLf & "Doppelt: " & ActionTypes.Describe(k.DoublePress)
+        If k.Release IsNot Nothing Then s &= vbCrLf & "Loslassen: " & ActionTypes.Describe(k.Release)
+        If Not String.IsNullOrWhiteSpace(k.Description) Then s &= vbCrLf & vbCrLf & k.Description
         Return s
     End Function
 
@@ -429,6 +484,11 @@ Public Class MainForm
 
     ''' <summary>Wählt eine Taste für den Inspektor; fragt bei ungespeicherten Änderungen nach.</summary>
     Private Sub SelectKey(index As Integer)
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, index) Then
+            MessageBox.Show(Me, $"In Ordnern ist Taste {index} fest die Zurück-Taste. Welche Taste das ist, lässt sich in den Einstellungen ändern.",
+                            "Ordner", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            Return
+        End If
         Dim here = _inspector.ProfileName = _engine.CurrentProfile.Name AndAlso _inspector.PageName = _engine.CurrentPage.Name
         If here AndAlso index = _inspector.KeyIndex Then Return
         If _inspector.IsDirty Then
@@ -472,6 +532,8 @@ Public Class MainForm
 
     Private Sub SwapKeys(fromIndex As Integer, toIndex As Integer)
         If fromIndex = toIndex Then Return
+        If ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, fromIndex) OrElse
+           ConfigStore.IsFixedBackKey(_engine.Config, _engine.CurrentPage, toIndex) Then Return
         Dim p = _engine.CurrentProfile.Name
         Dim pg = _engine.CurrentPage.Name
         _engine.UpdateConfig(Sub(c)
@@ -497,6 +559,40 @@ Public Class MainForm
         Loop
     End Function
 
+    ''' <summary>Ein Profil als Datei speichern, um es auf einem anderen Rechner zu importieren.</summary>
+    Private Sub ExportProfile(name As String)
+        Dim p = _engine.Config.FindProfile(name)
+        If p Is Nothing Then Return
+        Using d As New SaveFileDialog With {.Filter = "Stream-Deck-Profil (*.sdprofile.json)|*.sdprofile.json|JSON (*.json)|*.json", .FileName = $"{name}.sdprofile.json"}
+            If d.ShowDialog(Me) <> DialogResult.OK Then Return
+            Try
+                IO.File.WriteAllText(d.FileName, ConfigEdit.ExportProfile(p), New Text.UTF8Encoding(False))
+                _tray.Log($"Profil '{name}' exportiert: {d.FileName}")
+            Catch ex As Exception
+                MessageBox.Show(Me, ex.Message, "Profil exportieren", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            End Try
+        End Using
+    End Sub
+
+    Private Sub ImportProfile()
+        Using d As New OpenFileDialog With {.Filter = "Stream-Deck-Profil (*.sdprofile.json;*.json)|*.sdprofile.json;*.json|Alle Dateien|*.*"}
+            If d.ShowDialog(Me) <> DialogResult.OK Then Return
+            Dim json As String
+            Try
+                json = IO.File.ReadAllText(d.FileName)
+                ConfigEdit.ImportProfile(ConfigStore.CloneConfig(_engine.Config), json)   ' Probelauf: Fehler vor dem Übernehmen melden
+            Catch ex As Exception
+                MessageBox.Show(Me, $"Die Datei ist kein gültiges Profil:{vbCrLf}{ex.Message}", "Profil importieren", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Return
+            End Try
+            Dim imported As String = Nothing
+            _engine.UpdateConfig(Sub(c) imported = ConfigEdit.ImportProfile(c, json).Name)
+            _tray.Log($"Profil '{imported}' importiert")
+            MessageBox.Show(Me, $"Profil '{imported}' wurde hinzugefügt. Pfade zu Programmen, Sounds und Symbolen müssen auf diesem Rechner ggf. angepasst werden.",
+                            "Profil importieren", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        End Using
+    End Sub
+
     Private Sub ShowProfileMenu(name As String, anchor As Control, location As Point)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Umbenennen …", Nothing, Sub() RenameProfile(name))
@@ -508,6 +604,9 @@ Public Class MainForm
         Next
         If running.DropDownItems.Count = 0 Then running.DropDownItems.Add("(keine Programme mit Fenster gefunden)").Enabled = False
         m.Items.Add(running)
+        m.Items.Add(New ToolStripSeparator())
+        m.Items.Add("Profil exportieren (für anderen Rechner) …", Nothing, Sub() ExportProfile(name))
+        m.Items.Add("Profil importieren …", Nothing, Sub() ImportProfile())
         m.Items.Add(New ToolStripSeparator())
         m.Items.Add("Löschen", Nothing, Sub() DeleteProfile(name)).Enabled = _engine.Config.Profiles.Count > 1
         AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
@@ -566,6 +665,7 @@ Public Class MainForm
     Private Sub ShowPageMenu(anchor As Control)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Neue Seite …", Nothing, Sub() NewPage())
+        m.Items.Add("Neuer Ordner …", Nothing, Sub() NewPage(asFolder:=True))
         m.Items.Add("Seite umbenennen …", Nothing, Sub() RenamePage(_engine.CurrentPage.Name))
         m.Items.Add("Seite löschen", Nothing, Sub() DeletePage(_engine.CurrentPage.Name)).Enabled = _engine.CurrentProfile.Pages.Count > 1
         m.Items.Add(New ToolStripSeparator())
@@ -578,14 +678,53 @@ Public Class MainForm
     Private Sub ShowPageItemMenu(name As String, anchor As Control, location As Point)
         Dim m As New ContextMenuStrip()
         m.Items.Add("Umbenennen …", Nothing, Sub() RenamePage(name))
+        Dim pg = _engine.CurrentProfile.FindPage(name)
+        Dim isFolder = pg IsNot Nothing AndAlso pg.IsFolder
+        Dim folderItem = m.Items.Add(If(isFolder, "In normale Seite umwandeln", "In Ordner umwandeln"), Nothing, Sub() SetFolder(name, Not isFolder))
+        folderItem.Enabled = pg IsNot Nothing AndAlso pg IsNot _engine.CurrentProfile.Pages(0)
         m.Items.Add("Löschen", Nothing, Sub() DeletePage(name)).Enabled = _engine.CurrentProfile.Pages.Count > 1
         AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
         m.Show(anchor, location)
     End Sub
 
-    Private Sub NewPage()
+    ''' <summary>Ordner: per Taste öffnen (Aktion 'Seite wechseln'), feste Zurück-Taste, beim Blättern übersprungen.</summary>
+    Private Sub SetFolder(name As String, folder As Boolean)
+        Dim profileName = _engine.CurrentProfile.Name
+        Dim lost = False
+        _engine.UpdateConfig(Sub(c) lost = Not ConfigEdit.SetFolder(c, c.FindProfile(profileName), name, folder))
+        If lost AndAlso folder Then
+            MessageBox.Show(Me, $"Auf Taste {_engine.Config.FolderBackKey} lag eine Belegung, und es war keine Taste mehr frei – sie wurde durch 'Zurück' ersetzt.",
+                            "Ordner", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End If
+    End Sub
+
+    Private Sub NewPage(Optional asFolder As Boolean = False)
         Dim profileName = _engine.CurrentProfile.Name
         Dim names = _engine.CurrentProfile.Pages.Select(Function(p) p.Name).ToList()
+        If asFolder Then
+            Dim folderName = AskName("Name des neuen Ordners:", "Neuer Ordner", ConfigEdit.UniqueName(names, "Ordner"), names)
+            If folderName Is Nothing Then Return
+            Dim fromPage = _engine.CurrentPage.Name
+            Dim placed = -1
+            _engine.UpdateConfig(Sub(c)
+                                     Dim p = c.FindProfile(profileName)
+                                     ConfigEdit.AddPage(p, folderName)
+                                     ConfigEdit.SetFolder(c, p, folderName, True)
+                                     ' Taste zum Öffnen auf die erste freie Taste der aktuellen Seite legen (verschachtelbar)
+                                     Dim here = p.FindPage(fromPage)
+                                     placed = Enumerable.Range(0, ConfigStore.KeyCount).Where(
+                                         Function(i) here.GetKey(i) Is Nothing AndAlso Not ConfigStore.IsFixedBackKey(c, here, i)).DefaultIfEmpty(-1).First()
+                                     If placed >= 0 Then here.SetKey(placed, New KeyConfig With {
+                                         .Label = folderName, .Press = New ActionConfig With {.ActionType = ActionTypes.Page, .Target = folderName}})
+                                 End Sub, profileName, fromPage)
+            If placed >= 0 Then
+                SelectKey(placed)
+            Else
+                MessageBox.Show(Me, $"Ordner '{folderName}' angelegt. Auf dieser Seite ist keine Taste frei – zum Öffnen einer Taste die Aktion 'Seite wechseln' mit Ziel '{folderName}' geben.",
+                                "Neuer Ordner", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            End If
+            Return
+        End If
         Dim name = AskName("Name der neuen Seite:", "Neue Seite", ConfigEdit.UniqueName(names, "Seite"), names)
         If name Is Nothing Then Return
         _engine.UpdateConfig(Sub(c)
@@ -661,7 +800,7 @@ Public Class MainForm
         End Try
         Using dlg As New SettingsForm(_engine.Config, autostartOn, _tray.Connection.PortName, _tray.ConfigPath)
             If dlg.ShowDialog(Me) = DialogResult.OK Then
-                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled)
+                _tray.ApplySettings(dlg.LongPressMs, dlg.ObsUrl, dlg.ObsPassword, dlg.AutostartEnabled, dlg.FolderBackKey, dlg.ShowOverlay, dlg.DoublePressMs, dlg.RunAsAdmin, dlg.VoiceMix)
             End If
         End Using
     End Sub
@@ -682,6 +821,8 @@ Public Class KeyButton
 
     Public ReadOnly Property KeyIndex As Integer
     Public Event SwapRequested(fromIndex As Integer, toIndex As Integer)
+    ''' <summary>Aus der Aktionsleiste wurde ein Aktionstyp auf diese Taste gezogen.</summary>
+    Public Event ActionDropped(keyIndex As Integer, actionType As String)
 
     Public Sub New(index As Integer)
         KeyIndex = index
@@ -790,12 +931,14 @@ Public Class KeyButton
     End Sub
 
     Protected Overrides Sub OnDragOver(e As DragEventArgs)
-        e.Effect = If(e.Data.GetDataPresent("StreamDeckKey"), DragDropEffects.Move, DragDropEffects.None)
+        e.Effect = If(e.Data.GetDataPresent("StreamDeckKey"), DragDropEffects.Move,
+                      If(e.Data.GetDataPresent(ActionChip.DataFormat), DragDropEffects.Copy, DragDropEffects.None))
         MyBase.OnDragOver(e)
     End Sub
 
     Protected Overrides Sub OnDragDrop(e As DragEventArgs)
         If e.Data.GetDataPresent("StreamDeckKey") Then RaiseEvent SwapRequested(CInt(e.Data.GetData("StreamDeckKey")), KeyIndex)
+        If e.Data.GetDataPresent(ActionChip.DataFormat) Then RaiseEvent ActionDropped(KeyIndex, CStr(e.Data.GetData(ActionChip.DataFormat)))
         MyBase.OnDragDrop(e)
     End Sub
 

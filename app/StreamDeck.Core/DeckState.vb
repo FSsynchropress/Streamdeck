@@ -61,7 +61,15 @@ Public Class DeckState
 
     ''' <summary>Profil manuell wählen (wird als aktives Profil gespeichert).</summary>
     Public Function SelectProfile(name As String) As Boolean
-        Dim p = _config.FindProfile(name)
+        Dim p As ProfileConfig
+        Dim delta = RelativeDelta(name)
+        If delta <> 0 Then
+            If _config.Profiles.Count < 2 Then Return False
+            Dim i = _config.Profiles.IndexOf(_profile)
+            p = _config.Profiles((i + delta + _config.Profiles.Count) Mod _config.Profiles.Count)
+        Else
+            p = _config.FindProfile(name)
+        End If
         If p Is Nothing Then Return False
         _config.ActiveProfile = p.Name
         SetProfile(p)
@@ -76,9 +84,29 @@ Public Class DeckState
         RaiseEvent Changed(Me, EventArgs.Empty)
     End Sub
 
-    ''' <summary>Seite wechseln. Versteht "@back" und "@first".</summary>
+    ''' <summary>"@next" -> 1, "@prev" -> -1, sonst 0.</summary>
+    Private Shared Function RelativeDelta(target As String) As Integer
+        If String.Equals(target, ActionTypes.TargetNext, StringComparison.OrdinalIgnoreCase) Then Return 1
+        If String.Equals(target, ActionTypes.TargetPrev, StringComparison.OrdinalIgnoreCase) Then Return -1
+        Return 0
+    End Function
+
+    ''' <summary>Seite wechseln. Versteht "@back", "@first", "@next" und "@prev" (Blättern überspringt Ordner, ringsum).</summary>
     Public Function GoToPage(target As String) As Boolean
         If String.IsNullOrWhiteSpace(target) Then Return False
+        Dim delta = RelativeDelta(target)
+        If delta <> 0 Then
+            Dim pages = _profile.Pages.Where(Function(x) Not x.IsFolder).ToList()
+            Dim i = pages.IndexOf(_page)
+            ' Aus einem Ordner heraus: von der Seite aus blättern, aus der der Ordner geöffnet wurde
+            If i < 0 Then i = pages.IndexOf(If(_history.Select(Function(n) _profile.FindPage(n)).FirstOrDefault(Function(x) x IsNot Nothing AndAlso Not x.IsFolder), pages(0)))
+            Dim nextPage = pages((i + delta + pages.Count) Mod pages.Count)
+            If nextPage Is _page Then Return False
+            _history.Clear()
+            _page = nextPage
+            RaiseEvent Changed(Me, EventArgs.Empty)
+            Return True
+        End If
         If String.Equals(target, ActionTypes.PageBack, StringComparison.OrdinalIgnoreCase) Then Return Back()
         If String.Equals(target, ActionTypes.PageFirst, StringComparison.OrdinalIgnoreCase) Then
             If _page Is _profile.Pages(0) Then Return False

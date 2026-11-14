@@ -65,8 +65,11 @@ Public Class ActionEditor
         New Choice(ActionTypes.Obs, "OBS steuern"),
         New Choice(ActionTypes.Page, "Seite wechseln"),
         New Choice(ActionTypes.Profile, "Profil wechseln"),
-        New Choice(ActionTypes.Multi, "Mehrere Aktionen nacheinander"),
+        New Choice(ActionTypes.Multi, "Mehrere Aktionen (nacheinander oder gleichzeitig)"),
         New Choice(ActionTypes.Toggle, "Umschalter (bei jedem Druck die nächste Aktion)"),
+        New Choice(ActionTypes.Random, "Zufällige Aktion aus einer Liste"),
+        New Choice(ActionTypes.Window, "Fenster verschieben / auf Monitor legen"),
+        New Choice(ActionTypes.Plugin, "Plugin (eigene DLL oder Skript)"),
         New Choice(ActionTypes.Wait, "Warten (für Mehrfach-Aktionen)")}
 
     Private Shared ReadOnly MicChoices As Choice() = {
@@ -77,6 +80,28 @@ Public Class ActionEditor
         New Choice("firefox.exe", "Mozilla Firefox"), New Choice("brave.exe", "Brave"), New Choice("opera.exe", "Opera")}
 
     Private _headersError As String
+
+    Private Shared ReadOnly WindowChoices As Choice() = {
+        New Choice("monitor", "Auf Monitor legen"), New Choice("nextMonitor", "Auf nächsten Monitor"),
+        New Choice("move", "Position und Größe (Prozent)"), New Choice("maximize", "Maximieren"),
+        New Choice("minimize", "Minimieren"), New Choice("restore", "Wiederherstellen")}
+
+    ''' <summary>Verfügbare Plugins (setzt die App beim Start), für die Auswahlliste.</summary>
+    Public Shared Property PluginSource As Func(Of List(Of (Name As String, Description As String)))
+    ''' <summary>Plugin-Ordner (für den Hinweis im Editor).</summary>
+    Public Shared Property PluginFolder As String
+
+    ''' <summary>Vorlagen für HTTP-Aktionen (Smart Home, Webhooks). Platzhalter in spitzen Klammern ersetzen.</summary>
+    Private Shared ReadOnly HttpTemplates As (Name As String, Action As ActionConfig)() = {
+        ("Philips Hue: Licht an", New ActionConfig With {.Method = "PUT", .Url = "http://<bridge-ip>/api/<benutzer>/lights/<nr>/state", .Body = "{""on"": true}"}),
+        ("Philips Hue: Licht aus", New ActionConfig With {.Method = "PUT", .Url = "http://<bridge-ip>/api/<benutzer>/lights/<nr>/state", .Body = "{""on"": false}"}),
+        ("Philips Hue: Helligkeit 50 %", New ActionConfig With {.Method = "PUT", .Url = "http://<bridge-ip>/api/<benutzer>/lights/<nr>/state", .Body = "{""on"": true, ""bri"": 127}"}),
+        ("Philips Hue: Szene (Gruppe)", New ActionConfig With {.Method = "PUT", .Url = "http://<bridge-ip>/api/<benutzer>/groups/<gruppe>/action", .Body = "{""scene"": ""<szenen-id>""}"}),
+        ("Home Assistant: Licht umschalten", New ActionConfig With {.Method = "POST", .Url = "http://homeassistant.local:8123/api/services/light/toggle",
+            .Body = "{""entity_id"": ""light.<name>""}", .Headers = New Dictionary(Of String, String) From {{"Authorization", "Bearer <token>"}}}),
+        ("Home Assistant: Skript starten", New ActionConfig With {.Method = "POST", .Url = "http://homeassistant.local:8123/api/services/script/turn_on",
+            .Body = "{""entity_id"": ""script.<name>""}", .Headers = New Dictionary(Of String, String) From {{"Authorization", "Bearer <token>"}}}),
+        ("n8n: Webhook (POST)", New ActionConfig With {.Method = "POST", .Url = "http://<n8n-host>:5678/webhook/<pfad>", .Body = "{""quelle"": ""streamdeck""}"})}
 
     Private Shared ReadOnly MediaChoices As Choice() = {
         New Choice("playpause", "Play / Pause"), New Choice("next", "Nächster Titel"), New Choice("prev", "Vorheriger Titel"),
@@ -203,6 +228,19 @@ Public Class ActionEditor
                 If op.EndsWith("Source", StringComparison.Ordinal) AndAlso String.IsNullOrWhiteSpace(a.Source) Then Return "Bitte den Namen der Quelle angeben."
             Case ActionTypes.Page, ActionTypes.Profile : If String.IsNullOrWhiteSpace(a.Target) Then Return "Bitte ein Ziel wählen."
             Case ActionTypes.Multi : If a.Actions Is Nothing OrElse a.Actions.Count = 0 Then Return "Bitte mindestens einen Schritt hinzufügen."
+            Case ActionTypes.Random : If a.Actions Is Nothing OrElse a.Actions.Count < 2 Then Return "Bitte mindestens zwei Aktionen hinzufügen."
+            Case ActionTypes.Plugin : If String.IsNullOrWhiteSpace(a.Plugin) Then Return "Bitte ein Plugin wählen."
+            Case ActionTypes.Window
+                If Not String.IsNullOrWhiteSpace(a.Path) Then
+                    Try
+                        ProcessActions.ProcessNameFromPath(a.Path)
+                    Catch ex As ArgumentException
+                        Return ex.Message
+                    End Try
+                End If
+                If a.Op = "monitor" AndAlso a.Monitor.GetValueOrDefault() > WindowActionHandler.Monitors().Count Then
+                    Return $"Monitor {a.Monitor} gibt es gerade nicht (angeschlossen: {WindowActionHandler.Monitors().Count})."
+                End If
             Case ActionTypes.Toggle : If a.Actions Is Nothing OrElse a.Actions.Count < 2 Then Return "Bitte mindestens zwei Aktionen hinzufügen, zwischen denen umgeschaltet wird."
             Case ActionTypes.Close
                 Try
@@ -235,6 +273,7 @@ Public Class ActionEditor
             Case ActionTypes.Sound
                 r.File = a.File : r.Volume = a.Volume : r.Device = a.Device : r.Duration = a.Duration
                 If a.Restart.GetValueOrDefault() Then r.Restart = True
+                If a.Voice = False Then r.Voice = False
             Case ActionTypes.Launch : r.Path = a.Path : r.Args = a.Args
             Case ActionTypes.Close
                 r.Path = a.Path
@@ -257,7 +296,15 @@ Public Class ActionEditor
                 If a.Hidden.GetValueOrDefault() Then r.Hidden = True
             Case ActionTypes.Obs : r.Op = a.Op : r.Scene = a.Scene : r.Source = a.Source
             Case ActionTypes.Page, ActionTypes.Profile : r.Target = a.Target
-            Case ActionTypes.Multi : r.Actions = a.Actions
+            Case ActionTypes.Multi
+                r.Actions = a.Actions
+                If a.Parallel.GetValueOrDefault() Then r.Parallel = True
+            Case ActionTypes.Random : r.Actions = a.Actions
+            Case ActionTypes.Plugin : r.Plugin = a.Plugin : r.Args = a.Args
+            Case ActionTypes.Window
+                r.Op = a.Op : r.Path = a.Path
+                If a.Op = "monitor" OrElse a.Op = "move" Then r.Monitor = a.Monitor
+                If a.Op = "move" Then r.X = a.X : r.Y = a.Y : r.Width = a.Width : r.Height = a.Height
             Case ActionTypes.Wait : r.Ms = a.Ms
         End Select
         Return r
@@ -281,6 +328,7 @@ Public Class ActionEditor
                 _working.Duration = If(dur > 0, dur, CType(Nothing, Double?))
                 _working.Device = ComboValueOrNothing("device")
                 _working.Restart = DirectCast(_inputs("restart"), CheckBox).Checked
+                _working.Voice = If(DirectCast(_inputs("voice"), CheckBox).Checked, CType(Nothing, Boolean?), False)
             Case ActionTypes.Launch
                 _working.Path = TextOf("path")
                 _working.Args = TextOf("args")
@@ -322,7 +370,22 @@ Public Class ActionEditor
                 _working.Scene = TextOf("scene")
                 _working.Source = TextOf("source")
             Case ActionTypes.Page, ActionTypes.Profile : _working.Target = Choice.GetValue(DirectCast(_inputs("target"), ComboBox))
-            Case ActionTypes.Multi : _working.Actions = _steps.ToList()
+            Case ActionTypes.Multi
+                _working.Actions = _steps.ToList()
+                _working.Parallel = DirectCast(_inputs("parallel"), CheckBox).Checked
+            Case ActionTypes.Random : _working.Actions = _steps.ToList()
+            Case ActionTypes.Plugin
+                _working.Plugin = ComboValueOrNothing("plugin")
+                _working.Args = TextOf("args")
+            Case ActionTypes.Window
+                _working.Op = Choice.GetValue(DirectCast(_inputs("op"), ComboBox))
+                _working.Path = TextOf("path")
+                Dim mon = CInt(DirectCast(_inputs("monitor"), NumericUpDown).Value)
+                _working.Monitor = If(mon > 0, mon, CType(Nothing, Integer?))
+                _working.X = CInt(DirectCast(_inputs("x"), NumericUpDown).Value)
+                _working.Y = CInt(DirectCast(_inputs("y"), NumericUpDown).Value)
+                _working.Width = CInt(DirectCast(_inputs("w"), NumericUpDown).Value)
+                _working.Height = CInt(DirectCast(_inputs("h"), NumericUpDown).Value)
             Case ActionTypes.Wait : _working.Ms = CInt(DirectCast(_inputs("ms"), NumericUpDown).Value)
         End Select
     End Sub
@@ -415,6 +478,10 @@ Public Class ActionEditor
                 Dim restart As New CheckBox With {.Text = "Erneuter Druck startet von vorn (statt zu stoppen)", .AutoSize = True, .Checked = a.Restart.GetValueOrDefault()}
                 AddRow("", restart)
                 _inputs("restart") = restart
+                Dim voice As New CheckBox With {.Text = "Auch in Discord hörbar (wenn 'Sounds in Discord' in den Einstellungen an ist)", .AutoSize = True,
+                                                .Checked = a.Voice.GetValueOrDefault(True)}
+                AddRow("", voice)
+                _inputs("voice") = voice
                 AddHint("'Mitgeliefert' bietet 50 freie Sounds (CC0, BigSoundBank.com). Erneuter Tastendruck stoppt den laufenden Sound; mit Dauer wird am Ende kurz ausgeblendet.")
             Case ActionTypes.Launch
                 Dim tb = AddTextRow("path", "Pfad:", a.Path)
@@ -466,7 +533,12 @@ Public Class ActionEditor
                 headers.Height = 50
                 headers.Font = Theme.Mono(9.0F)
                 headers.PlaceholderText = "Authorization: Bearer …"
-                AddHint("Läuft im Hintergrund, z. B. für n8n-Webhooks oder Home Assistant. Fehler (kein 2xx-Status, Zeitüberschreitung nach 15 s) erscheinen im Protokoll.")
+                Dim templates As New Button With {.Text = "Vorlage ▾", .AutoSize = True}
+                AddHandler templates.Click, Sub() ShowHttpTemplates(templates)
+                _fields.Controls.Add(templates, 1, 1)   ' neben der Methode
+                templates.Margin = New Padding(6, 0, 0, 0)
+                AddHint("Läuft im Hintergrund, z. B. für n8n-Webhooks, Home Assistant oder Philips Hue ('Vorlage'). Fehler (kein 2xx-Status, Zeitüberschreitung nach 15 s) erscheinen im Protokoll." &
+                        " Licht an/aus auf einer Taste: zwei HTTP-Aktionen in einen 'Umschalter' legen.")
             Case ActionTypes.Mic
                 AddComboRow("op", "Aktion:", MicChoices, If(a.Op, "toggle"), editable:=False)
                 Dim inputs = New List(Of Choice) From {New Choice("", "(alle Mikrofone)")}
@@ -517,14 +589,55 @@ Public Class ActionEditor
                 AddHint("Szene/Quelle exakt wie in OBS benennen. Bei Quellen ohne Szene gilt die aktuelle Szene." & vbCrLf &
                         "OBS: Werkzeuge → WebSocket-Servereinstellungen → Server aktivieren; Adresse/Passwort unter Einstellungen.")
             Case ActionTypes.Page
-                Dim items As New List(Of Choice) From {New Choice(ActionTypes.PageBack, "← Zurück (vorige Seite)"), New Choice(ActionTypes.PageFirst, "⌂ Erste Seite")}
+                Dim items As New List(Of Choice) From {
+                    New Choice(ActionTypes.PageBack, "← Zurück (vorige Seite / aus dem Ordner)"), New Choice(ActionTypes.PageFirst, "⌂ Erste Seite"),
+                    New Choice(ActionTypes.TargetNext, "→ Nächste Seite (blättern)"), New Choice(ActionTypes.TargetPrev, "← Vorige Seite (blättern)")}
                 items.AddRange(_pageNames.Select(Function(n) New Choice(n, n)))
                 AddComboRow("target", "Ziel:", items, If(a.Target, ActionTypes.PageBack), editable:=True)
+                AddHint("Seiten und Ordner des Profils. Ein Ordner wird über so eine Taste geöffnet; darin ist die Zurück-Taste fest (Einstellungen)." &
+                        " Blättern läuft ringsum und überspringt Ordner.")
             Case ActionTypes.Profile
-                AddComboRow("target", "Profil:", _profileNames.Select(Function(n) New Choice(n, n)), If(a.Target, _profileNames.FirstOrDefault()), editable:=True)
+                Dim items As New List(Of Choice) From {New Choice(ActionTypes.TargetNext, "→ Nächstes Profil"), New Choice(ActionTypes.TargetPrev, "← Voriges Profil")}
+                items.AddRange(_profileNames.Select(Function(n) New Choice(n, n)))
+                AddComboRow("target", "Profil:", items, If(a.Target, _profileNames.FirstOrDefault()), editable:=True)
                 AddHint("Wechselt das manuell gewählte Profil.")
             Case ActionTypes.Multi
-                BuildStepsEditor("Die Schritte laufen nacheinander (Doppelklick = bearbeiten). Für Pausen den Schritt 'Warten' verwenden.")
+                BuildStepsEditor("Doppelklick = Schritt bearbeiten. Nacheinander: Pausen mit dem Schritt 'Warten'. Gleichzeitig: alle Schritte starten auf einmal.")
+                Dim par As New CheckBox With {.Text = "Alle Schritte gleichzeitig ausführen", .AutoSize = True, .Checked = a.Parallel.GetValueOrDefault()}
+                AddRow("", par)
+                _inputs("parallel") = par
+            Case ActionTypes.Plugin
+                Dim items = If(PluginSource?.Invoke(), New List(Of (Name As String, Description As String))).
+                    Select(Function(p) New Choice(p.Name, If(String.IsNullOrEmpty(p.Description), p.Name, $"{p.Name} – {p.Description}"))).ToList()
+                AddComboRow("plugin", "Plugin:", items, a.Plugin, editable:=True)
+                AddTextRow("args", "Argumente:", a.Args)
+                AddHint($"Plugins liegen im Ordner {If(PluginFolder, "%APPDATA%\StreamDeck\plugins")} (Tray-Menü 'Plugin-Ordner öffnen'):" &
+                        " .NET-DLLs mit einer Klasse, die IDeckPlugin implementiert, oder Skripte (.ps1, .cmd, .bat, .py, .exe)." &
+                        " Skripte bekommen die Argumente und die Tastennummer (Umgebungsvariable STREAMDECK_KEY). DLLs werden beim Start geladen.")
+            Case ActionTypes.Window
+                AddComboRow("op", "Aktion:", WindowChoices, If(a.Op, "monitor"), editable:=False)
+                Dim tb = AddTextRow("path", "Programm (leer = aktives Fenster):", a.Path)
+                tb.PlaceholderText = "z. B. obs64.exe"
+                Dim count = WindowActionHandler.Monitors().Count
+                Dim mon As New NumericUpDown With {.Minimum = 0, .Maximum = 9, .Value = Math.Max(0, Math.Min(9, a.Monitor.GetValueOrDefault(If(a.Op = "move", 0, 1)))), .Width = 60}
+                Dim monRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False, .Margin = Padding.Empty}
+                monRow.Controls.Add(mon)
+                monRow.Controls.Add(New Label With {.Text = $"(angeschlossen: {count}; bei 'Position' 0 = aktueller Monitor)", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(3, 6, 3, 3)})
+                AddRow("Monitor:", monRow)
+                monRow.Anchor = AnchorStyles.Left Or AnchorStyles.Top
+                _inputs("monitor") = mon
+                Dim rectRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = True, .Margin = Padding.Empty}
+                For Each f In {("x", "Links", a.X.GetValueOrDefault(0)), ("y", "Oben", a.Y.GetValueOrDefault(0)), ("w", "Breite", a.Width.GetValueOrDefault(50)), ("h", "Höhe", a.Height.GetValueOrDefault(100))}
+                    rectRow.Controls.Add(New Label With {.Text = f.Item2, .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(0, 6, 3, 3)})
+                    Dim n As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Value = Math.Max(0, Math.Min(100, f.Item3)), .Width = 56, .Margin = New Padding(0, 0, 10, 0)}
+                    rectRow.Controls.Add(n)
+                    _inputs(f.Item1) = n
+                Next
+                AddRow("Position und Größe in % (nur bei 'Position und Größe'):", rectRow)
+                rectRow.Anchor = AnchorStyles.Left Or AnchorStyles.Top
+                AddHint("Beispiele: linke Bildschirmhälfte = 0 / 0 / 50 / 100, rechte = 50 / 0 / 50 / 100. Monitor-Nummern wie in den Windows-Anzeigeeinstellungen.")
+            Case ActionTypes.Random
+                BuildStepsEditor("Jeder Druck führt zufällig eine der Aktionen aus (nie zweimal dieselbe hintereinander).")
             Case ActionTypes.Toggle
                 BuildStepsEditor("Jeder Tastendruck führt die nächste Aktion aus: 1, 2, 1, 2 … Zwei Tastenkombinationen ergeben einen Hotkey-Switch," &
                                  " zwei 'Mehrere Aktionen' einen Multi-Action-Switch. Mehr als zwei Einträge laufen reihum.")
@@ -687,6 +800,23 @@ Public Class ActionEditor
         _inputs(name) = cb
         Return cb
     End Function
+
+    ''' <summary>HTTP-Vorlagen: füllt Methode, Adresse, Inhalt und Kopfzeilen aus.</summary>
+    Private Sub ShowHttpTemplates(anchor As Control)
+        Dim m As New ContextMenuStrip()
+        For Each t In HttpTemplates
+            Dim tpl = t.Action
+            m.Items.Add(t.Name, Nothing, Sub()
+                                            Choice.Fill(DirectCast(_inputs("method"), ComboBox), ActionTypes.HttpMethods.Select(Function(x) New Choice(x, x)), tpl.Method)
+                                            _inputs("url").Text = tpl.Url
+                                            _inputs("body").Text = If(tpl.Body, "")
+                                            _inputs("contentType").Text = ""
+                                            _inputs("headers").Text = HttpActions.FormatHeaders(tpl.Headers)
+                                        End Sub)
+        Next
+        AddHandler m.Closed, Sub() BeginInvoke(Sub() m.Dispose())
+        m.Show(anchor, New Point(0, anchor.Height))
+    End Sub
 
     ''' <summary>Menü mit den mitgelieferten Sounds; Auswahl trägt den relativen Pfad ein und spielt kurz vor.</summary>
     Private Sub ShowBuiltInSounds(anchor As Control, target As TextBox)
@@ -895,6 +1025,51 @@ Public Class SettingsForm
     Private ReadOnly _obsUrl As New TextBox
     Private ReadOnly _obsPassword As New TextBox With {.UseSystemPasswordChar = True}
     Private ReadOnly _autostart As New CheckBox With {.Text = "Mit Windows starten", .AutoSize = True}
+    Private ReadOnly _overlay As New CheckBox With {.Text = "Einblendung auf dem Bildschirm bei Profil-/Seiten-/Ordnerwechsel und Meldungen", .AutoSize = True}
+    Private ReadOnly _admin As New CheckBox With {.Text = "Mit Administratorrechten ausführen", .AutoSize = True}
+
+    Public ReadOnly Property RunAsAdmin As Boolean
+        Get
+            Return _admin.Checked
+        End Get
+    End Property
+    Private ReadOnly _folderBack As New NumericUpDown With {.Minimum = 0, .Maximum = ConfigStore.KeyCount - 1, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private ReadOnly _voiceEnabled As New CheckBox With {.Text = "Sounds zusätzlich ins Mikrofon mischen (Discord, Teams …)", .AutoSize = True}
+    Private ReadOnly _voiceMic As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
+    Private ReadOnly _voiceOut As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDown}
+    Private ReadOnly _voiceMicVolume As New NumericUpDown With {.Minimum = 0, .Maximum = 100, .Width = 70, .TextAlign = HorizontalAlignment.Right}
+    Private Const DefaultMicText As String = "(Standard-Mikrofon)"
+
+    Public ReadOnly Property VoiceMix As VoiceMixSettings
+        Get
+            Dim mic = _voiceMic.Text.Trim()
+            Return New VoiceMixSettings With {
+                .Enabled = _voiceEnabled.Checked,
+                .Microphone = If(mic.Length = 0 OrElse mic = DefaultMicText, Nothing, mic),
+                .Output = If(String.IsNullOrWhiteSpace(_voiceOut.Text), "CABLE Input", _voiceOut.Text.Trim()),
+                .MicVolume = CInt(_voiceMicVolume.Value)}
+        End Get
+    End Property
+
+    Private ReadOnly _doublePress As New NumericUpDown With {.Minimum = 150, .Maximum = 1000, .Increment = 25, .Width = 90, .TextAlign = HorizontalAlignment.Right}
+
+    Public ReadOnly Property DoublePressMs As Integer
+        Get
+            Return CInt(_doublePress.Value)
+        End Get
+    End Property
+
+    Public ReadOnly Property ShowOverlay As Boolean
+        Get
+            Return _overlay.Checked
+        End Get
+    End Property
+
+    Public ReadOnly Property FolderBackKey As Integer
+        Get
+            Return CInt(_folderBack.Value)
+        End Get
+    End Property
 
     Public ReadOnly Property LongPressMs As Integer
         Get
@@ -933,7 +1108,21 @@ Public Class SettingsForm
         _obsUrl.Text = config.Obs?.Url
         _obsPassword.Text = config.Obs?.Password
         _autostart.Checked = autostartOn
+        _overlay.Checked = config.ShowOverlay
+        _admin.Checked = config.RunAsAdmin
+        _doublePress.Value = Math.Max(_doublePress.Minimum, Math.Min(_doublePress.Maximum, config.DoublePressMs))
+        _folderBack.Value = Math.Max(0, Math.Min(ConfigStore.KeyCount - 1, config.FolderBackKey))
         _obsUrl.Font = Theme.Mono(9.5F)
+
+        Dim vm = If(config.VoiceMix, New VoiceMixSettings)
+        _voiceEnabled.Checked = vm.Enabled
+        _voiceMic.Items.Add(DefaultMicText)
+        _voiceMic.Items.AddRange(MicActionHandler.GetInputDevices().Where(Function(d) d.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) < 0).ToArray())
+        _voiceMic.Text = If(String.IsNullOrWhiteSpace(vm.Microphone), DefaultMicText, vm.Microphone)
+        _voiceOut.Items.AddRange(SoundActionHandler.GetOutputDevices().ToArray())
+        Dim cable = VoiceMixer.FindCableOutput(vm.Output)
+        _voiceOut.Text = If(cable, vm.Output)
+        _voiceMicVolume.Value = Math.Max(0, Math.Min(100, vm.MicVolume))
 
         ' --- Gerät
         Dim device As New CardPanel With {.Fill = Theme.Raised, .Height = 68}
@@ -952,6 +1141,31 @@ Public Class SettingsForm
         Dim longRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
         longRow.Controls.Add(_longPress)
         longRow.Controls.Add(New Label With {.Text = "ms – so lange muss eine Taste gehalten werden", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim adminHint As New Label With {
+            .Text = "Nötig, damit Hotkeys und Fensteraktionen auch Programme erreichen, die als Administrator laufen. Beim Start fragt Windows (UAC);" &
+                    " der Autostart läuft dann über eine geplante Aufgabe ohne Abfrage." & If(Elevation.IsElevated(), " Läuft gerade mit Administratorrechten.", " Läuft gerade ohne."),
+            .AutoSize = True, .MaximumSize = New Size(530, 0), .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F), .Padding = New Padding(20, 0, 0, 8)}
+        Dim doubleRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        doubleRow.Controls.Add(_doublePress)
+        doubleRow.Controls.Add(New Label With {.Text = "ms – so schnell muss der zweite Druck folgen", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+        Dim folderRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        folderRow.Controls.Add(_folderBack)
+        folderRow.Controls.Add(New Label With {.Text = "Taste 0–14 (0 = oben links) – in Ordnern immer 'Zurück'", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
+
+        ' --- Sprach-Mix
+        Dim voiceHint As New Label With {
+            .Text = "Discord hört nur das Mikrofon. Die App mischt deshalb Mikrofon + Sounds und gibt beides auf einem virtuellen Kabel aus:" & vbCrLf &
+                    "1. VB-Audio Virtual Cable installieren (kostenlos, vb-audio.com/Cable) und neu starten." & vbCrLf &
+                    "2. Hier einschalten, darunter das echte Mikrofon wählen." & vbCrLf &
+                    "3. In Discord › Sprache & Video › Eingabegerät: 'CABLE Output'. Rauschunterdrückung (Krisp) ausschalten, sonst werden Sounds weggefiltert.",
+            .AutoSize = True, .MaximumSize = New Size(550, 0), .ForeColor = Theme.Muted, .Font = Theme.Ui(8.5F), .Padding = New Padding(20, 0, 0, 8)}
+        Dim cableFound = VoiceMixer.FindCableOutput(Nothing) IsNot Nothing
+        Dim voiceStatus As New Label With {
+            .Text = If(cableFound, "✓ Virtuelles Kabel gefunden.", "Kein virtuelles Kabel gefunden – bitte VB-Audio Virtual Cable installieren."),
+            .AutoSize = True, .ForeColor = If(cableFound, Theme.Good, Theme.Bad), .Font = Theme.Ui(8.5F), .Padding = New Padding(0, 4, 0, 0)}
+        Dim micVolRow As New FlowLayoutPanel With {.AutoSize = True, .WrapContents = False}
+        micVolRow.Controls.Add(_voiceMicVolume)
+        micVolRow.Controls.Add(New Label With {.Text = "% – Sounds behalten die Lautstärke der Taste", .AutoSize = True, .ForeColor = Theme.Muted, .Margin = New Padding(6, 5, 0, 0)})
 
         ' --- OBS
         Dim obsHint As New Label With {.Text = "In OBS: Werkzeuge › WebSocket-Servereinstellungen › 'WebSocket-Server aktivieren'. Adresse und Passwort stehen unter 'Verbindungsinformationen anzeigen'. Das Passwort wird unverschlüsselt in config.json gespeichert.",
@@ -960,7 +1174,11 @@ Public Class SettingsForm
         Dim body As New Panel With {.Dock = DockStyle.Fill, .AutoScroll = True, .Padding = New Padding(24, 6, 24, 12)}
         Theme.StackTop(body,
                        Section("Gerät"), device,
-                       Section("Allgemein"), _autostart, autostartHint, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Section("Allgemein"), _autostart, autostartHint, _overlay, _admin, adminHint, Theme.FieldLabel("Langer Druck ab"), longRow,
+                       Theme.FieldLabel("Doppeldruck innerhalb"), doubleRow,
+                       Theme.FieldLabel("Zurück-Taste in Ordnern"), folderRow,
+                       Section("Sounds in Discord (Sprach-Mix)"), _voiceEnabled, voiceHint, Theme.FieldLabel("Mikrofon"), _voiceMic,
+                       Theme.FieldLabel("Virtuelles Kabel (Ausgabegerät)"), _voiceOut, voiceStatus, Theme.FieldLabel("Mikrofon-Lautstärke im Mix"), micVolRow,
                        Section("OBS WebSocket"), Theme.FieldLabel("Adresse"), _obsUrl, Theme.FieldLabel("Passwort"), _obsPassword, obsHint)
 
         Dim folderLink As New LinkLabel With {.Text = "Konfigurationsordner öffnen", .AutoSize = True, .Padding = New Padding(0, 9, 0, 0), .Visible = configPath IsNot Nothing}

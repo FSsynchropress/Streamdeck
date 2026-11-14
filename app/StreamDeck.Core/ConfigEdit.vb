@@ -10,6 +10,12 @@ Public Module ConfigEdit
         For Each a In Flatten(key.LongPress)
             Yield a
         Next
+        For Each a In Flatten(key.DoublePress)
+            Yield a
+        Next
+        For Each a In Flatten(key.Release)
+            Yield a
+        Next
     End Function
 
     Public Iterator Function Flatten(action As ActionConfig, Optional depth As Integer = 0) As IEnumerable(Of ActionConfig)
@@ -59,6 +65,79 @@ Public Module ConfigEdit
         Dim page As New PageConfig With {.Name = UniqueName(profile.Pages.Select(Function(p) p.Name), baseName)}
         profile.Pages.Add(page)
         Return page
+    End Function
+
+    ''' <summary>
+    ''' Seite zum Ordner machen (oder zurück zur normalen Seite). Liegt auf der festen Zurück-Taste schon
+    ''' eine Belegung, wird sie auf die erste freie Taste verschoben. Liefert False, wenn dafür kein Platz war
+    ''' (die Belegung geht dann verloren) oder die Seite die Startseite ist.
+    ''' </summary>
+    Public Function SetFolder(cfg As DeckConfig, profile As ProfileConfig, pageName As String, folder As Boolean) As Boolean
+        Dim page = profile.FindPage(pageName)
+        If page Is Nothing Then Return False
+        If Not folder Then
+            page.Folder = Nothing
+            ' die Zurück-Taste bleibt als normale Taste stehen
+            Return True
+        End If
+        If page Is profile.Pages(0) Then Return False
+        page.Folder = True
+        Dim occupying = page.GetKey(cfg.FolderBackKey)
+        If occupying Is Nothing OrElse IsBackKey(occupying) Then
+            page.SetKey(cfg.FolderBackKey, ConfigStore.FolderBackKeyConfig())
+            Return True
+        End If
+        Dim free = Enumerable.Range(0, ConfigStore.KeyCount).Where(Function(i) i <> cfg.FolderBackKey AndAlso page.GetKey(i) Is Nothing).DefaultIfEmpty(-1).First()
+        If free >= 0 Then page.SetKey(free, occupying)
+        page.SetKey(cfg.FolderBackKey, ConfigStore.FolderBackKeyConfig())
+        Return free >= 0
+    End Function
+
+    ''' <summary>Feste Zurück-Taste der Ordner verlegen: alte Zurück-Taste entfernen, neue setzen (Belegungen werden verschoben).</summary>
+    Public Sub SetFolderBackKey(cfg As DeckConfig, newKey As Integer)
+        If newKey < 0 OrElse newKey >= ConfigStore.KeyCount OrElse newKey = cfg.FolderBackKey Then Return
+        Dim old = cfg.FolderBackKey
+        cfg.FolderBackKey = newKey
+        For Each p In cfg.Profiles
+            For Each pg In p.Pages.Where(Function(x) x.IsFolder).ToList()
+                If IsBackKey(pg.GetKey(old)) Then pg.SetKey(old, Nothing)
+                SetFolder(cfg, p, pg.Name, True)
+            Next
+        Next
+    End Sub
+
+    ''' <summary>Hülle für eine Profil-Datei (*.sdprofile.json), damit sie sich von einer ganzen Konfiguration unterscheiden lässt.</summary>
+    Public Class ProfileFile
+        Public Property StreamDeckProfile As Integer = 1
+        Public Property Profile As ProfileConfig
+    End Class
+
+    ''' <summary>Ein Profil als JSON zum Weitergeben an einen anderen Rechner.</summary>
+    Public Function ExportProfile(profile As ProfileConfig) As String
+        Return Text.Json.JsonSerializer.Serialize(New ProfileFile With {.Profile = profile}, ConfigStore.JsonOptions)
+    End Function
+
+    ''' <summary>
+    ''' Profil aus JSON übernehmen (Profil-Datei oder nacktes Profil). Gibt es den Namen schon, wird er
+    ''' eindeutig gemacht ("Name 2"). Liefert das hinzugefügte Profil. Wirft JsonException/FormatException.
+    ''' </summary>
+    Public Function ImportProfile(cfg As DeckConfig, json As String) As ProfileConfig
+        Dim file = Text.Json.JsonSerializer.Deserialize(Of ProfileFile)(json, ConfigStore.JsonOptions)
+        Dim p = file?.Profile
+        If p Is Nothing Then
+            p = Text.Json.JsonSerializer.Deserialize(Of ProfileConfig)(json, ConfigStore.JsonOptions)
+            If p Is Nothing OrElse p.Pages Is Nothing OrElse p.Pages.Count = 0 Then Throw New FormatException("Die Datei enthält kein Profil.")
+        End If
+        Dim baseName = If(String.IsNullOrWhiteSpace(p.Name), "Profil", p.Name.Trim())
+        Dim existing = cfg.Profiles.Select(Function(x) x.Name).ToList()
+        p.Name = If(existing.Contains(baseName, StringComparer.OrdinalIgnoreCase), UniqueName(existing, baseName), baseName)
+        cfg.Profiles.Add(p)
+        ConfigStore.Normalize(cfg)
+        Return p
+    End Function
+
+    Private Function IsBackKey(k As KeyConfig) As Boolean
+        Return k IsNot Nothing AndAlso k.Press IsNot Nothing AndAlso IsType(k.Press, ActionTypes.Page) AndAlso String.Equals(k.Press.Target, ActionTypes.PageBack, StringComparison.OrdinalIgnoreCase) AndAlso k.LongPress Is Nothing
     End Function
 
     ''' <summary>Benennt eine Seite um und passt alle Seitenwechsel im Profil an.</summary>

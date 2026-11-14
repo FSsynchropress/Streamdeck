@@ -15,6 +15,9 @@ Public Module Program
             .OnBeforeUninstallFastCallback(Sub(v) Autostart.SetEnabled(False)) _
             .Run()
 
+        ' Neustart mit Administratorrechten: erst warten, bis die alte Instanz den Mutex freigibt.
+        Elevation.WaitForPreviousInstance(args)
+
         Dim createdNew As Boolean
         Using mutex As New Mutex(True, InstanceName, createdNew)
             If Not createdNew Then
@@ -41,8 +44,15 @@ Public Module Program
             If cfg Is Nothing Then Return
 
             Dim startHidden = args.Any(Function(a) a.Equals("--tray", StringComparison.OrdinalIgnoreCase))
+            ' Option "Mit Administratorrechten ausführen": neu starten (UAC). Abgelehnt -> normal weiter.
+            Dim elevationDeclined = False
+            If cfg.RunAsAdmin AndAlso Not Elevation.IsElevated() AndAlso Not args.Any(Function(a) a.Equals("--no-elevate", StringComparison.OrdinalIgnoreCase)) Then
+                If Elevation.RestartElevated(startHidden) Then Return
+                elevationDeclined = True
+            End If
             Using showEvent As New EventWaitHandle(False, EventResetMode.AutoReset, InstanceName & "-show")
                 Using ctx As New TrayContext(cfg, path, showEvent, startHidden)
+                    If elevationDeclined Then ctx.Log("Start mit Administratorrechten abgelehnt – läuft ohne (Hotkeys erreichen keine Admin-Programme).")
                     Application.Run(ctx)
                 End Using
             End Using
@@ -80,6 +90,8 @@ Public Class TrayContext
     Private ReadOnly _notify As NotifyIcon
     Private ReadOnly _runner As ActionRunner
     Private ReadOnly _sound As SoundActionHandler
+    Private ReadOnly _voice As VoiceMixer
+    Private ReadOnly _voiceItem As ToolStripMenuItem
     Private ReadOnly _obs As ObsActionHandler
     Private ReadOnly _foregroundTimer As System.Windows.Forms.Timer
     Private ReadOnly _waitHandle As RegisteredWaitHandle
@@ -88,11 +100,15 @@ Public Class TrayContext
     Private ReadOnly _logLines As New List(Of String)
     Private ReadOnly _fileLog As New FileLog(FileLog.DefaultFolder)
     Private _form As MainForm
+    Private _overlay As OverlayForm
+    Private ReadOnly _stateItem As New ToolStripMenuItem("") With {.Enabled = False}
+    Private ReadOnly _profileMenu As New ToolStripMenuItem("Profil wechseln")
     Private _lastForeground As String
     Private _exiting As Boolean
     Private _hintShown As Boolean
 
     Public ReadOnly Property Engine As DeckEngine
+    Public ReadOnly Property Plugins As PluginHost
     Public ReadOnly Property Connection As DeckConnection
     Public ReadOnly Property Updates As Updater
     Public ReadOnly Property IconConnected As Icon
@@ -115,14 +131,23 @@ Public Class TrayContext
         _runner = New ActionRunner()
         ProcessActions.Register(_runner, AddressOf Log)
         NativeInput.Register(_runner)
-        _sound = New SoundActionHandler(AddressOf Log)
+        _voice = New VoiceMixer(AddressOf Log)
+        _sound = New SoundActionHandler(AddressOf Log, _voice)
         _runner.Register(ActionTypes.Sound, _sound)
         Engine = New DeckEngine(config, _runner)
         _obs = New ObsActionHandler(Function() Engine.Config.Obs)
         _runner.Register(ActionTypes.Obs, _obs)
         HttpActions.Register(_runner)
+        _runner.Register(ActionTypes.Window, New WindowActionHandler())
+        Plugins = New PluginHost(PluginHost.DefaultFolder, AddressOf Log)
+        Plugins.LoadDlls()
+        _runner.Register(ActionTypes.Plugin, Plugins)
+        ActionEditor.PluginSource = Function() Plugins.Available()
+        ActionEditor.PluginFolder = Plugins.Folder
         _runner.Register(ActionTypes.Mic, New MicActionHandler(_runner, AddressOf Log))
         AddHandler _runner.Notify, Sub(t, m) Post(Sub() ShowHint(t, m))
+        AddHandler Engine.Navigated, Sub(t, s) Post(Sub() OnNavigated(t, s))
+        AddHandler Engine.StateChanged, Sub() Post(AddressOf UpdateTrayText)
         AddHandler Engine.Log, AddressOf Log
         AddHandler Engine.ConfigChanged, Sub() Post(AddressOf SaveConfig)
 
@@ -134,11 +159,18 @@ Public Class TrayContext
 
         ' Tray
         Dim menu As New ContextMenuStrip()
+        menu.Items.Add(_stateItem)
+        menu.Items.Add(_profileMenu)
+        menu.Items.Add(New ToolStripSeparator())
         Dim openItem = menu.Items.Add("Fenster öffnen", Nothing, Sub() ShowMainForm())
         openItem.Font = New Font(openItem.Font, FontStyle.Bold)
         _autostartItem = New ToolStripMenuItem("Mit Windows starten", Nothing, Sub() ToggleAutostart())
         menu.Items.Add(_autostartItem)
+        _voiceItem = New ToolStripMenuItem("Sounds in Discord (Sprach-Mix)", Nothing, Sub() ToggleVoiceMix())
+        menu.Items.Add(_voiceItem)
         menu.Items.Add("Protokollordner öffnen", Nothing, Sub() OpenLogFolder())
+        menu.Items.Add("Plugin-Ordner öffnen", Nothing, Sub() OpenFolder(Plugins.Folder))
+        If Not Elevation.IsElevated() Then menu.Items.Add("Als Administrator neu starten", Nothing, Sub() RestartAsAdmin())
         menu.Items.Add(New ToolStripSeparator())
 
         ' Updates
@@ -148,7 +180,11 @@ Public Class TrayContext
         menu.Items.Add(_updateItem)
         menu.Items.Add(New ToolStripSeparator())
         menu.Items.Add("Beenden", Nothing, Sub() ExitApp())
-        AddHandler menu.Opening, Sub() _autostartItem.Checked = SafeAutostartEnabled()
+        AddHandler menu.Opening, Sub()
+                                     _autostartItem.Checked = SafeAutostartEnabled()
+                                     _voiceItem.Checked = Engine.Config.VoiceMix.Enabled
+                                     RefreshTrayMenu()
+                                 End Sub
         AddHandler Updates.UpdateReady, Sub(v) Post(Sub() OnUpdateReady(v))
 
         _notify = New NotifyIcon With {.Icon = IconDisconnected, .Text = "DIY Stream Deck – nicht verbunden", .ContextMenuStrip = menu, .Visible = True}
@@ -164,9 +200,11 @@ Public Class TrayContext
         ' Zweiter Programmstart -> Fenster zeigen
         _waitHandle = ThreadPool.RegisterWaitForSingleObject(showEvent, Sub(s, t) Post(AddressOf ShowMainForm), Nothing, -1, False)
 
+        UpdateTrayText()
         Autostart.RefreshPathIfEnabled()
         Log($"DIY Stream Deck {Updates.CurrentVersion}")
         Log($"Konfiguration: {configPath}")
+        ApplyVoiceMix(announce:=False)
         Connection.Start()
         Updates.Start()
         If Not startHidden Then ShowMainForm()
@@ -211,10 +249,42 @@ Public Class TrayContext
         End Get
     End Property
 
-    ''' <summary>Kurzer Hinweis am Tray-Symbol (bis das On-Screen-Overlay kommt).</summary>
-    Private Sub ShowHint(title As String, message As String)
+    ''' <summary>Kurzer Hinweis: On-Screen-Overlay, oder (wenn ausgeschaltet) Sprechblase am Tray-Symbol.</summary>
+    Private Sub ShowHint(title As String, message As String, Optional glyph As String = Nothing)
         If _exiting OrElse _notify Is Nothing Then Return
-        _notify.ShowBalloonTip(2000, title, If(String.IsNullOrEmpty(message), " ", message), ToolTipIcon.None)
+        If Engine.Config.ShowOverlay Then
+            If _overlay Is Nothing OrElse _overlay.IsDisposed Then _overlay = New OverlayForm()
+            _overlay.ShowMessage(title, message, glyph)
+        Else
+            _notify.ShowBalloonTip(2000, title, If(String.IsNullOrEmpty(message), " ", message), ToolTipIcon.None)
+        End If
+    End Sub
+
+    Private Sub OnNavigated(title As String, subtitle As String)
+        Log($"{title} ({subtitle})")
+        Dim glyph = If(title.StartsWith("Ordner", StringComparison.Ordinal), ChrW(&HE8B7),
+                       If(title.StartsWith("Profil", StringComparison.Ordinal), ChrW(&HE77B), ChrW(&HE7C3)))
+        ShowHint(title, subtitle, glyph)
+    End Sub
+
+    ''' <summary>Tooltip am Tray-Symbol: Verbindung + aktuelles Profil/Seite (max. 127 Zeichen).</summary>
+    Private Sub UpdateTrayText()
+        If _exiting OrElse _notify Is Nothing Then Return
+        Dim port = Connection.PortName
+        Dim text = $"DIY Stream Deck – {If(port IsNot Nothing, $"verbunden ({port})", "nicht verbunden")}{vbLf}{Engine.Summary()}"
+        _notify.Text = If(text.Length > 127, text.Substring(0, 126) & "…", text)
+    End Sub
+
+    ''' <summary>Tray-Menü: Zustand anzeigen und Profil direkt wählen.</summary>
+    Private Sub RefreshTrayMenu()
+        _stateItem.Text = Engine.Summary()
+        _profileMenu.DropDownItems.Clear()
+        For Each p In Engine.Config.Profiles
+            Dim name = p.Name
+            Dim item As New ToolStripMenuItem(name, Nothing, Sub() Engine.SelectProfile(name, notify:=True)) With {
+                .Checked = String.Equals(name, Engine.CurrentProfile.Name, StringComparison.OrdinalIgnoreCase)}
+            _profileMenu.DropDownItems.Add(item)
+        Next
     End Sub
 
     Private Sub OpenLogFolder()
@@ -237,13 +307,8 @@ Public Class TrayContext
     Private Sub OnConnectionChanged()
         If _exiting Then Return
         Dim port = Connection.PortName
-        If port IsNot Nothing Then
-            _notify.Icon = IconConnected
-            _notify.Text = $"DIY Stream Deck – verbunden ({port})"
-        Else
-            _notify.Icon = IconDisconnected
-            _notify.Text = "DIY Stream Deck – nicht verbunden"
-        End If
+        _notify.Icon = If(port IsNot Nothing, IconConnected, IconDisconnected)
+        UpdateTrayText()
         RaiseEvent ConnectionChanged()
     End Sub
 
@@ -257,40 +322,104 @@ Public Class TrayContext
         _lastForeground = name
         ' Im eigenen Fenster nicht umschalten, sonst springt das Profil beim Bearbeiten weg.
         If String.Equals(name, Process.GetCurrentProcess().ProcessName, StringComparison.OrdinalIgnoreCase) Then Return
-        If Engine.ApplyForegroundProcess(name) Then
-            Log($"Profil '{Engine.CurrentProfile.Name}'{If(Engine.IsAutoProfile, $" (automatisch für {name})", "")}")
-        End If
+        Engine.ApplyForegroundProcess(name)   ' meldet einen Wechsel über Navigated (Protokoll + Overlay)
     End Sub
 
-    Private Shared Function SafeAutostartEnabled() As Boolean
+    ''' <summary>Autostart an: über den Run-Schlüssel oder (mit Administratorrechten) über die geplante Aufgabe.</summary>
+    Public Shared Function SafeAutostartEnabled() As Boolean
         Try
-            Return Autostart.IsEnabled()
+            Return Autostart.IsEnabled() OrElse Elevation.IsElevatedAutostartEnabled()
         Catch
             Return False
         End Try
     End Function
 
-    Private Sub ToggleAutostart()
+    ''' <summary>
+    ''' Autostart setzen. Mit "Als Administrator ausführen" über eine geplante Aufgabe (startet ohne UAC-Abfrage),
+    ''' sonst über den Run-Schlüssel. Die jeweils andere Variante wird entfernt.
+    ''' </summary>
+    Private Sub SetAutostart(enabled As Boolean, asAdmin As Boolean)
         Try
-            Autostart.SetEnabled(Not Autostart.IsEnabled())
-            Log(If(Autostart.IsEnabled(), "Autostart eingeschaltet", "Autostart ausgeschaltet"))
+            If enabled AndAlso asAdmin Then
+                Elevation.SetElevatedAutostart(True)
+                Autostart.SetEnabled(False)
+            Else
+                Elevation.SetElevatedAutostart(False)
+                Autostart.SetEnabled(enabled)
+            End If
+            Log(If(enabled, $"Autostart eingeschaltet{If(asAdmin, " (mit Administratorrechten)", "")}", "Autostart ausgeschaltet"))
         Catch ex As Exception
             Log($"Autostart: {ex.Message}")
         End Try
     End Sub
 
+    Private Sub ToggleAutostart()
+        SetAutostart(Not SafeAutostartEnabled(), Engine.Config.RunAsAdmin)
+    End Sub
+
+    Private Sub OpenFolder(folder As String)
+        Try
+            IO.Directory.CreateDirectory(folder)
+            Process.Start(New ProcessStartInfo(folder) With {.UseShellExecute = True})?.Dispose()
+        Catch ex As Exception
+            Log($"Ordner öffnen: {ex.Message}")
+        End Try
+    End Sub
+
+    ''' <summary>Startet die App mit Administratorrechten neu (UAC-Abfrage).</summary>
+    Public Sub RestartAsAdmin()
+        If Elevation.RestartElevated(startHidden:=_form Is Nothing OrElse Not _form.Visible) Then
+            ExitApp()
+        Else
+            Log("Neustart mit Administratorrechten abgebrochen.")
+        End If
+    End Sub
+
+    ''' <summary>Sprach-Mix (Sounds in Discord) per Tray-Menü ein-/ausschalten.</summary>
+    Private Sub ToggleVoiceMix()
+        Dim enable = Not Engine.Config.VoiceMix.Enabled
+        Engine.UpdateConfig(Sub(c) c.VoiceMix.Enabled = enable)
+        ApplyVoiceMix(announce:=True)
+    End Sub
+
+    ''' <summary>Startet den Sprach-Mix neu; Fehler werden immer gemeldet, Ein/Aus nur mit <paramref name="announce"/>.</summary>
+    Private Sub ApplyVoiceMix(announce As Boolean)
+        Dim s = Engine.Config.VoiceMix
+        Dim err = _voice.Apply(s)
+        If err IsNot Nothing Then
+            ShowHint("Sounds in Discord: Fehler", err)
+        ElseIf Not announce Then
+            Return
+        ElseIf s.Enabled Then
+            ShowHint("Sounds in Discord an", "In Discord als Eingabegerät 'CABLE Output' wählen.")
+        Else
+            ShowHint("Sounds in Discord aus", "Discord wieder auf das normale Mikrofon stellen.")
+        End If
+    End Sub
+
     ''' <summary>Übernimmt die Werte aus dem Einstellungsdialog.</summary>
-    Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean)
+    Public Sub ApplySettings(longPressMs As Integer, obsUrl As String, obsPassword As String, autostartEnabled As Boolean,
+                             folderBackKey As Integer, showOverlay As Boolean, doublePressMs As Integer, runAsAdmin As Boolean,
+                             voiceMix As VoiceMixSettings)
+        Dim adminChanged = runAsAdmin <> Engine.Config.RunAsAdmin
+        Dim wasEnabled = Engine.Config.VoiceMix.Enabled
         Engine.UpdateConfig(Sub(c)
+                                c.RunAsAdmin = runAsAdmin
                                 c.LongPressMs = longPressMs
+                                c.DoublePressMs = doublePressMs
+                                c.ShowOverlay = showOverlay
+                                ConfigEdit.SetFolderBackKey(c, folderBackKey)
                                 c.Obs = New ObsSettings With {.Url = obsUrl, .Password = obsPassword}
+                                c.VoiceMix = voiceMix
                             End Sub)
         _obs.Reset()
-        Try
-            If autostartEnabled <> Autostart.IsEnabled() Then Autostart.SetEnabled(autostartEnabled)
-        Catch ex As Exception
-            Log($"Autostart: {ex.Message}")
-        End Try
+        ApplyVoiceMix(announce:=wasEnabled <> voiceMix.Enabled)
+        If autostartEnabled <> SafeAutostartEnabled() OrElse (autostartEnabled AndAlso adminChanged) Then SetAutostart(autostartEnabled, runAsAdmin)
+        If adminChanged AndAlso runAsAdmin AndAlso Not Elevation.IsElevated() Then
+            If MessageBox.Show("Jetzt mit Administratorrechten neu starten?", "DIY Stream Deck", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                Post(AddressOf RestartAsAdmin)
+            End If
+        End If
     End Sub
 
     ' ------------------------------------------------------------------ Fenster
@@ -360,7 +489,9 @@ Public Class TrayContext
         Connection.Stop()
         Engine.Dispose()
         _sound.Dispose()
+        _voice.Dispose()
         _obs.Dispose()
+        _overlay?.Dispose()
     End Sub
 
     Protected Overrides Sub Dispose(disposing As Boolean)

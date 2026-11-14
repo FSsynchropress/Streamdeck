@@ -13,6 +13,8 @@ Public Class DeckEngine
     Private ReadOnly _state As DeckState
     Private ReadOnly _tracker As KeyPressTracker
     Private ReadOnly _held As New Dictionary(Of Integer, KeyConfig)
+    ''' <summary>Belegung je Taste, solange Taste gehalten oder der Tracker noch entscheidet (Doppeldruck).</summary>
+    Private ReadOnly _bound As New Dictionary(Of Integer, KeyConfig)
     Private ReadOnly _clock As Func(Of Long)
     Private _timer As Threading.Timer
 
@@ -25,6 +27,11 @@ Public Class DeckEngine
     ''' <summary>Konfiguration wurde geändert und sollte gespeichert werden.</summary>
     Public Event ConfigChanged()
     Public Event Log(message As String)
+    ''' <summary>
+    ''' Profil/Seite/Ordner wurde am Gerät oder automatisch gewechselt (für das On-Screen-Overlay).
+    ''' Nicht bei Klicks in der Oberfläche.
+    ''' </summary>
+    Public Event Navigated(title As String, subtitle As String)
 
     ''' <param name="clock">Millisekunden-Uhr (für Tests); Standard Environment.TickCount64.</param>
     ''' <param name="tickIntervalMs">Prüfintervall für langen Druck; 0 = kein Timer (Tests rufen Tick selbst).</param>
@@ -32,14 +39,20 @@ Public Class DeckEngine
         _clock = If(clock, Function() Environment.TickCount64)
         Me.Runner = runner
         _state = New DeckState(config)
-        _tracker = New KeyPressTracker(AddressOf HasLongAction) With {.LongPressMs = _state.Config.LongPressMs}
+        _tracker = New KeyPressTracker(Function(k)
+                                           Dim key As KeyConfig = Nothing
+                                           _bound.TryGetValue(k, key)
+                                           Return KeyCaps.For(key)
+                                       End Function)
+        ApplyTimings()
 
         AddHandler _state.Changed, Sub() RaiseEvent StateChanged()
         AddHandler runner.Log, Sub(m) RaiseEvent Log(m)
-        runner.Register(ActionTypes.Page, DelegateActionHandler.FromSync(Sub(a) GoToPage(a.Target)))
+        runner.Register(ActionTypes.Page, DelegateActionHandler.FromSync(Sub(a) GoToPage(a.Target, notify:=True)))
         runner.Register(ActionTypes.Profile, DelegateActionHandler.FromSync(
             Sub(a)
-                If Not SelectProfile(a.Target) Then RaiseEvent Log($"Profil '{a.Target}' gibt es nicht.")
+                Dim relative = a.Target IsNot Nothing AndAlso a.Target.StartsWith("@", StringComparison.Ordinal)
+                If Not SelectProfile(a.Target, notify:=True) AndAlso Not relative Then RaiseEvent Log($"Profil '{a.Target}' gibt es nicht.")
             End Sub))
 
         If tickIntervalMs > 0 Then _timer = New Threading.Timer(Sub(s) Tick(), Nothing, tickIntervalMs, tickIntervalMs)
@@ -89,85 +102,174 @@ Public Class DeckEngine
         AddHandler connection.Log, Sub(m) RaiseEvent Log(m)
     End Sub
 
-    Private Function HasLongAction(keyIndex As Integer) As Boolean
-        Dim k As KeyConfig = Nothing
-        Return _held.TryGetValue(keyIndex, k) AndAlso k IsNot Nothing AndAlso k.LongPress IsNot Nothing AndAlso Not String.IsNullOrEmpty(k.LongPress.ActionType)
+    ''' <summary>
+    ''' "Taste lernen": Solange aktiv, löst ein Druck am Gerät keine Aktion aus, sondern meldet nur KeyLearned
+    ''' (die Oberfläche markiert dann diese Taste).
+    ''' </summary>
+    Public Property LearnMode As Boolean
+    Public Event KeyLearned(keyIndex As Integer)
+
+    Private Shared Function ActionFor(key As KeyConfig, kind As PressKind) As ActionConfig
+        If key Is Nothing Then Return Nothing
+        Select Case kind
+            Case PressKind.ShortPress, PressKind.Repeat : Return key.Press
+            Case PressKind.LongPress : Return key.LongPress
+            Case PressKind.DoublePress : Return key.DoublePress
+            Case PressKind.Release : Return key.Release
+            Case Else : Return Nothing
+        End Select
     End Function
 
+    Private Sub ApplyTimings()
+        _tracker.LongPressMs = _state.Config.LongPressMs
+        _tracker.DoublePressMs = _state.Config.DoublePressMs
+    End Sub
+
+    Private Sub FireAll(keyIndex As Integer, actions As List(Of ActionConfig))
+        For Each a In actions
+            If a IsNot Nothing Then Runner.Fire(a, keyIndex)
+        Next
+    End Sub
+
     Public Sub OnKeyDown(keyIndex As Integer)
-        Dim toFire As ActionConfig = Nothing
+        If LearnMode Then
+            RaiseEvent KeyLearned(keyIndex)
+            Return
+        End If
+        Dim toFire As New List(Of ActionConfig)
         SyncLock _sync
             If _held.ContainsKey(keyIndex) Then Return   ' doppeltes D ignorieren
-            Dim key = _state.GetKey(keyIndex)            ' Belegung beim Drücken merken (Seite kann wechseln)
+            ' Belegung beim ersten Drücken merken (Seite kann wechseln); beim zweiten Druck eines
+            ' Doppeldrucks gilt weiter die gemerkte Belegung.
+            Dim key As KeyConfig = Nothing
+            If Not (_tracker.IsPending(keyIndex) AndAlso _bound.TryGetValue(keyIndex, key)) Then key = _state.GetKey(keyIndex)
+            _bound(keyIndex) = key
             _held(keyIndex) = key
-            If _tracker.OnDown(keyIndex, _clock()) = PressKind.ShortPress Then toFire = key?.Press
+            For Each kind In _tracker.OnDown(keyIndex, _clock())
+                toFire.Add(ActionFor(key, kind))
+            Next
         End SyncLock
         RaiseEvent KeyStateChanged(keyIndex, True)
-        If toFire IsNot Nothing Then Runner.Fire(toFire, keyIndex)
+        FireAll(keyIndex, toFire)
     End Sub
 
     Public Sub OnKeyUp(keyIndex As Integer)
-        Dim toFire As ActionConfig = Nothing
+        Dim toFire As New List(Of ActionConfig)
         SyncLock _sync
             Dim key As KeyConfig = Nothing
             If Not _held.TryGetValue(keyIndex, key) Then Return
             _held.Remove(keyIndex)
-            Dim kind = _tracker.OnUp(keyIndex, _clock())
-            If key IsNot Nothing AndAlso kind.HasValue Then toFire = If(kind.Value = PressKind.LongPress, key.LongPress, key.Press)
+            For Each kind In _tracker.OnUp(keyIndex, _clock())
+                toFire.Add(ActionFor(key, kind))
+            Next
+            If Not _tracker.IsPending(keyIndex) Then _bound.Remove(keyIndex)
         End SyncLock
         RaiseEvent KeyStateChanged(keyIndex, False)
-        If toFire IsNot Nothing Then Runner.Fire(toFire, keyIndex)
+        FireAll(keyIndex, toFire)
     End Sub
 
-    ''' <summary>Löst fällige lange Tastendrücke aus. Läuft per Timer, Tests rufen es direkt auf.</summary>
+    ''' <summary>Löst fällige Ereignisse aus (lang, kurz nach Doppeldruck-Fenster, Wiederholung). Läuft per Timer, Tests rufen es direkt auf.</summary>
     Public Sub Tick()
         Dim due As New List(Of (Integer, ActionConfig))
         SyncLock _sync
             If _tracker.PendingCount = 0 Then Return
-            For Each k In _tracker.Tick(_clock())
+            For Each d In _tracker.Tick(_clock())
                 Dim key As KeyConfig = Nothing
-                If _held.TryGetValue(k, key) AndAlso key?.LongPress IsNot Nothing Then due.Add((k, key.LongPress))
+                _bound.TryGetValue(d.Key, key)
+                due.Add((d.Key, ActionFor(key, d.Kind)))
+                If Not _tracker.IsPending(d.Key) AndAlso Not _held.ContainsKey(d.Key) Then _bound.Remove(d.Key)
             Next
         End SyncLock
         For Each d In due
-            Runner.Fire(d.Item2, d.Item1)
+            If d.Item2 IsNot Nothing Then Runner.Fire(d.Item2, d.Item1)
         Next
     End Sub
 
-    ''' <summary>Verbindung weg: alle gehaltenen Tasten gelten als losgelassen (ohne Aktion).</summary>
+    ''' <summary>
+    ''' Verbindung weg: alle gehaltenen Tasten gelten als losgelassen. Nur die Aktionen beim Loslassen
+    ''' laufen (damit z. B. Push-to-Talk das Mikrofon wieder stumm schaltet), sonst nichts.
+    ''' </summary>
     Public Sub ReleaseAll()
-        Dim released As List(Of Integer)
+        Dim released As List(Of KeyValuePair(Of Integer, KeyConfig))
         SyncLock _sync
-            released = _held.Keys.ToList()
+            released = _held.ToList()
             _held.Clear()
+            _bound.Clear()
             _tracker.Reset()
         End SyncLock
-        For Each k In released
-            RaiseEvent KeyStateChanged(k, False)
+        For Each kv In released
+            RaiseEvent KeyStateChanged(kv.Key, False)
+            If kv.Value?.Release IsNot Nothing Then Runner.Fire(kv.Value.Release, kv.Key)
         Next
     End Sub
 
     ' ------------------------------------------------------------------ Bedienung
 
-    Public Function GoToPage(target As String) As Boolean
-        SyncLock _sync
-            Return _state.GoToPage(target)
-        End SyncLock
-    End Function
-
-    ''' <summary>Profil manuell wählen; wird als aktives Profil gespeichert.</summary>
-    Public Function SelectProfile(name As String) As Boolean
+    ''' <param name="notify">True = Navigated auslösen (Wechsel am Gerät).</param>
+    Public Function GoToPage(target As String, Optional notify As Boolean = False) As Boolean
         Dim ok As Boolean
+        Dim title As String = Nothing, subtitle As String = Nothing
         SyncLock _sync
-            ok = _state.SelectProfile(name)
+            ok = _state.GoToPage(target)
+            If ok Then DescribePage(title, subtitle)
         End SyncLock
-        If ok Then RaiseEvent ConfigChanged()
+        If ok AndAlso notify Then RaiseEvent Navigated(title, subtitle)
         Return ok
     End Function
 
-    Public Function ApplyForegroundProcess(processName As String) As Boolean
+    ''' <summary>Profil manuell wählen ("@next"/"@prev" = reihum); wird als aktives Profil gespeichert.</summary>
+    Public Function SelectProfile(name As String, Optional notify As Boolean = False) As Boolean
+        Dim ok As Boolean
+        Dim before As ProfileConfig
+        Dim title As String = Nothing, subtitle As String = Nothing
         SyncLock _sync
-            Return _state.ApplyForegroundProcess(processName)
+            before = _state.CurrentProfile
+            ok = _state.SelectProfile(name)
+            If ok Then DescribeProfile(title, subtitle)
+        End SyncLock
+        If ok Then RaiseEvent ConfigChanged()
+        If ok AndAlso notify AndAlso before IsNot _state.CurrentProfile Then RaiseEvent Navigated(title, subtitle)
+        Return ok
+    End Function
+
+    ''' <summary>Smart Profiles: Profil nach Vordergrundprogramm wählen. Ein Wechsel wird gemeldet (Navigated).</summary>
+    Public Function ApplyForegroundProcess(processName As String) As Boolean
+        Dim ok As Boolean
+        Dim title As String = Nothing, subtitle As String = Nothing
+        SyncLock _sync
+            ok = _state.ApplyForegroundProcess(processName)
+            If ok Then
+                DescribeProfile(title, subtitle)
+                If _state.IsAutoProfile Then subtitle = $"automatisch für {processName}"
+            End If
+        End SyncLock
+        If ok Then RaiseEvent Navigated(title, subtitle)
+        Return ok
+    End Function
+
+    Private Sub DescribeProfile(ByRef title As String, ByRef subtitle As String)
+        title = $"Profil: {_state.CurrentProfile.Name}"
+        subtitle = $"Seite {_state.CurrentPage.Name}"
+    End Sub
+
+    Private Sub DescribePage(ByRef title As String, ByRef subtitle As String)
+        Dim page = _state.CurrentPage
+        Dim profile = _state.CurrentProfile
+        If page.IsFolder Then
+            title = $"Ordner: {page.Name}"
+            subtitle = $"Profil {profile.Name} · Zurück auf Taste {_state.Config.FolderBackKey}"
+        Else
+            Dim pages = profile.Pages.Where(Function(p) Not p.IsFolder).ToList()
+            title = $"Seite: {page.Name}"
+            subtitle = $"Profil {profile.Name} · {pages.IndexOf(page) + 1}/{pages.Count}"
+        End If
+    End Sub
+
+    ''' <summary>Kurzer Zustandstext, z. B. "Profil Standard · Seite Start" (für Tray-Tooltip und Menü).</summary>
+    Public Function Summary() As String
+        SyncLock _sync
+            Dim page = _state.CurrentPage
+            Return $"Profil {_state.CurrentProfile.Name}{If(_state.IsAutoProfile, " (auto)", "")} · {If(page.IsFolder, "Ordner", "Seite")} {page.Name}"
         End SyncLock
     End Function
 
@@ -180,7 +282,7 @@ Public Class DeckEngine
             Dim copy = ConfigStore.CloneConfig(_state.Config)
             mutate(copy)
             _state.ReplaceConfig(copy, showProfile, showPage)
-            _tracker.LongPressMs = _state.Config.LongPressMs
+            ApplyTimings()
         End SyncLock
         RaiseEvent ConfigChanged()
     End Sub
@@ -189,7 +291,7 @@ Public Class DeckEngine
     Public Sub ReplaceConfig(config As DeckConfig)
         SyncLock _sync
             _state.ReplaceConfig(config)
-            _tracker.LongPressMs = _state.Config.LongPressMs
+            ApplyTimings()
         End SyncLock
         RaiseEvent ConfigChanged()
     End Sub
